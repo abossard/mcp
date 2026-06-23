@@ -821,6 +821,14 @@ try {
     New-Item -Path $parentDirectory -ItemType Directory -Force | Out-Null
 
     $buildInfo | ConvertTo-Json -Depth 5 | Out-File -FilePath $OutputPath -Encoding utf8 -Force
+
+    Write-Host "Test-vally"
+
+    npm install -g @microsoft/vally-cli
+    az login
+
+    Write-Host "Running vally eval with eval-spec $($RepoRoot)/tools/Azure.Mcp.Tools.AppConfig/tests/eval.yaml"
+    vally eval --eval-spec "$($RepoRoot)/tools/Azure.Mcp.Tools.AppConfig/tests/eval.yaml"
 }
 finally {
     Pop-Location
