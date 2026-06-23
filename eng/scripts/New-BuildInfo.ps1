@@ -825,7 +825,7 @@ try {
     Write-Host "Test-vally"
 
     npm install -g @microsoft/vally-cli
-    az login
+    az login *> $null
 
     Write-Host "Running vally eval with eval-spec $($RepoRoot)/tools/Azure.Mcp.Tools.AppConfig/tests/eval.yaml"
     vally eval --eval-spec "$($RepoRoot)/tools/Azure.Mcp.Tools.AppConfig/tests/eval.yaml"
