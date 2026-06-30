@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using Azure.Mcp.Tools.Monitor.Commands.ActivityLog;
-using Azure.Mcp.Tools.Monitor.Commands.HealthModels.Entity;
 using Azure.Mcp.Tools.Monitor.Commands.Instrumentation;
 using Azure.Mcp.Tools.Monitor.Commands.Log;
 using Azure.Mcp.Tools.Monitor.Commands.Metrics;
@@ -29,7 +28,6 @@ public class MonitorSetup : IAreaSetup
     public void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IMonitorService, MonitorService>();
-        services.AddSingleton<IMonitorHealthModelService, MonitorHealthModelService>();
         services.AddSingleton<IMonitorWebTestService, MonitorWebTestService>();
         services.AddSingleton<IResourceResolverService, ResourceResolverService>();
         services.AddSingleton<IMonitorMetricsService, MonitorMetricsService>();
@@ -78,8 +76,6 @@ public class MonitorSetup : IAreaSetup
 
         services.AddSingleton<TableTypeListCommand>();
 
-        services.AddSingleton<EntityGetHealthCommand>();
-
         services.AddSingleton<MetricsQueryCommand>();
         services.AddSingleton<MetricsDefinitionsCommand>();
 
@@ -101,9 +97,9 @@ public class MonitorSetup : IAreaSetup
         var monitor = new CommandGroup(Name,
             """
             Monitor operations - Commands for managing Azure Monitor workspaces, querying and analyzing logs and metrics, listing
-            tables and table types, working with health models and entities, web tests, and orchestrating instrumentation
+            tables and table types, web tests, and orchestrating instrumentation
             workflows. Use this tool to list Log Analytics workspaces, tables, and table types; run KQL queries against workspace
-            and resource logs; retrieve health for monitor entities; query metrics and metric definitions; inspect resource activity
+            and resource logs; query metrics and metric definitions; inspect resource activity
             logs; manage availability web tests; and guide instrumentation onboarding and enhancement flows. Covers Azure Monitor
             observability workflows. Set learn=true to discover sub-commands.
             """,
@@ -138,14 +134,6 @@ public class MonitorSetup : IAreaSetup
         monitorTable.AddCommand<TableListCommand>(serviceProvider);
 
         monitorTableType.AddCommand<TableTypeListCommand>(serviceProvider);
-
-        var health = new CommandGroup("healthmodels", "Azure Monitor Health Models operations - Commands for working with Azure Monitor Health Models.");
-        monitor.AddSubGroup(health);
-
-        var entity = new CommandGroup("entity", "Entity operations - Commands for working with entities in Azure Monitor Health Models.");
-        health.AddSubGroup(entity);
-
-        entity.AddCommand<EntityGetHealthCommand>(serviceProvider);
 
         // Create Metrics command group and register commands
         var metrics = new CommandGroup("metrics", "Azure Monitor metrics operations - Commands for querying and analyzing Azure Monitor metrics.");

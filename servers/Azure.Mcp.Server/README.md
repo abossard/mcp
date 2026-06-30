@@ -1113,6 +1113,13 @@ Example prompts that generate Azure CLI commands:
 * "Check if 'my-subnet-id' can host an Azure Managed Lustre with 'my-size' TiB and 'my-sku' in 'my-region'
 * Create a 4 TIB Azure Managed Lustre filesystem in 'my-region' attaching to 'my-subnet' in virtual network 'my-virtual-network'
 
+### 🩺 Azure Health Models
+
+* "List all Azure Health Models in my subscription"
+* "Show the entities in health model 'my-health-model'"
+* "Get the health history of entity 'frontend' in health model 'my-health-model'"
+* "Create a health model named 'my-health-model' in resource group 'my-rg' in eastus2"
+
 ### 📊 Azure Monitor
 
 * "Query my Log Analytics workspace"
@@ -1235,6 +1242,7 @@ The Azure MCP Server provides tools for interacting with **43+ Azure service are
 - 📊 **Azure Event Grid** - Event routing and management
 - 📁 **Azure File Shares** - Azure managed file share operations
 - ⚡ **Azure Functions** - Function App management and functions project files, language support, and templates source code
+- 🩺 **Azure Health Models** - Workload health modeling (Microsoft.CloudHealth): health models, entities, signals, relationships, discovery rules, authentication settings, and identity
 - 🔑 **Azure Key Vault** - Secrets, keys, and certificates
 - ☸️ **Azure Kubernetes Service (AKS)** - Container orchestration
 - 📦 **Azure Load Testing** - Performance testing

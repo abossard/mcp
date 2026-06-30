@@ -1,0 +1,3 @@
+changes:
+  - section: "Features Added"
+    description: "Added Azure Health Models tools (azmcp healthmodels) for the Microsoft.CloudHealth API (2026-05-01-preview), covering health models, entities, signal definitions, relationships, discovery rules, authentication settings, and managed identity. Removed the outdated monitor healthmodels entity command."

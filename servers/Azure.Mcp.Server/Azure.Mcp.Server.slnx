@@ -242,6 +242,13 @@
   <Folder Name="/tools/Azure.Mcp.Tools.Grafana/tests/">
     <Project Path="../../tools/Azure.Mcp.Tools.Grafana/tests/Azure.Mcp.Tools.Grafana.Tests/Azure.Mcp.Tools.Grafana.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/Azure.Mcp.Tools.HealthModels/" />
+  <Folder Name="/tools/Azure.Mcp.Tools.HealthModels/src/">
+    <Project Path="../../tools/Azure.Mcp.Tools.HealthModels/src/Azure.Mcp.Tools.HealthModels.csproj" />
+  </Folder>
+  <Folder Name="/tools/Azure.Mcp.Tools.HealthModels/tests/">
+    <Project Path="../../tools/Azure.Mcp.Tools.HealthModels/tests/Azure.Mcp.Tools.HealthModels.Tests/Azure.Mcp.Tools.HealthModels.Tests.csproj" />
+  </Folder>
   <Folder Name="/tools/Azure.Mcp.Tools.KeyVault/" />
   <Folder Name="/tools/Azure.Mcp.Tools.KeyVault/src/">
     <Project Path="../../tools/Azure.Mcp.Tools.KeyVault/src/Azure.Mcp.Tools.KeyVault.csproj" />

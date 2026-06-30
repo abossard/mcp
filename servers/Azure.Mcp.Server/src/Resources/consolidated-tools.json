@@ -359,7 +359,6 @@
         "datadog_monitoredresources_list",
         "monitor_workspace_list",
         "monitor_activitylog_list",
-        "monitor_healthmodels_entity_get",
         "monitor_metrics_definitions",
         "monitor_metrics_query",
         "monitor_resource_log_query",
@@ -4331,6 +4330,173 @@
       "mappedToolList": [
         "sreagent_scheduledtasks_delete",
         "sreagent_threads_delete"
+      ]
+    },
+    {
+      "name": "read_azure_health_models",
+      "description": "Read Azure Health Models (Microsoft.CloudHealth) resources: list and get health models, entities, signal definitions, relationships, discovery rules, authentication settings, and the managed identity; and read entity health history, signal history, signal recommendations, and data annotations.",
+      "toolMetadata": {
+        "destructive": {
+          "value": false,
+          "description": "This tool performs only additive updates without deleting or modifying existing resources."
+        },
+        "idempotent": {
+          "value": true,
+          "description": "Running this operation multiple times with the same arguments produces the same result without additional effects."
+        },
+        "openWorld": {
+          "value": false,
+          "description": "This tool's domain of interaction is closed and well-defined, limited to a specific set of entities."
+        },
+        "readOnly": {
+          "value": true,
+          "description": "This tool only performs read operations without modifying any state or data."
+        },
+        "secret": {
+          "value": false,
+          "description": "This tool does not handle sensitive or secret information."
+        },
+        "localRequired": {
+          "value": false,
+          "description": "This tool is available in both local and remote server modes."
+        }
+      },
+      "mappedToolList": [
+        "healthmodels_list",
+        "healthmodels_get",
+        "healthmodels_entity_list",
+        "healthmodels_entity_get",
+        "healthmodels_entity_get-history",
+        "healthmodels_entity_get-signal-history",
+        "healthmodels_entity_get-signal-recommendation",
+        "healthmodels_entity_get-data-annotations",
+        "healthmodels_signal-definition_list",
+        "healthmodels_signal-definition_get",
+        "healthmodels_relationship_list",
+        "healthmodels_relationship_get",
+        "healthmodels_discovery-rule_list",
+        "healthmodels_discovery-rule_get",
+        "healthmodels_authentication-setting_list",
+        "healthmodels_authentication-setting_get",
+        "healthmodels_identity_show"
+      ]
+    },
+    {
+      "name": "create_or_update_azure_health_models",
+      "description": "Create or update Azure Health Models (Microsoft.CloudHealth) resources: health models, entities, signal definitions, relationships, discovery rules, authentication settings, and assign the managed identity.",
+      "toolMetadata": {
+        "destructive": {
+          "value": false,
+          "description": "This tool performs only additive updates without deleting or modifying existing resources."
+        },
+        "idempotent": {
+          "value": true,
+          "description": "Running this operation multiple times with the same arguments produces the same result without additional effects."
+        },
+        "openWorld": {
+          "value": false,
+          "description": "This tool's domain of interaction is closed and well-defined, limited to a specific set of entities."
+        },
+        "readOnly": {
+          "value": false,
+          "description": "This tool may modify its environment by creating, updating, or deleting data."
+        },
+        "secret": {
+          "value": false,
+          "description": "This tool does not handle sensitive or secret information."
+        },
+        "localRequired": {
+          "value": false,
+          "description": "This tool is available in both local and remote server modes."
+        }
+      },
+      "mappedToolList": [
+        "healthmodels_create",
+        "healthmodels_update",
+        "healthmodels_entity_create",
+        "healthmodels_entity_update",
+        "healthmodels_signal-definition_create",
+        "healthmodels_signal-definition_update",
+        "healthmodels_relationship_create",
+        "healthmodels_relationship_update",
+        "healthmodels_discovery-rule_create",
+        "healthmodels_discovery-rule_update",
+        "healthmodels_authentication-setting_create",
+        "healthmodels_authentication-setting_update",
+        "healthmodels_identity_assign"
+      ]
+    },
+    {
+      "name": "delete_azure_health_models",
+      "description": "Delete Azure Health Models (Microsoft.CloudHealth) resources: health models, entities, signal definitions, relationships, discovery rules, authentication settings, and remove the managed identity.",
+      "toolMetadata": {
+        "destructive": {
+          "value": true,
+          "description": "This tool may delete or modify existing resources in its environment."
+        },
+        "idempotent": {
+          "value": true,
+          "description": "Running this operation multiple times with the same arguments produces the same result without additional effects."
+        },
+        "openWorld": {
+          "value": false,
+          "description": "This tool's domain of interaction is closed and well-defined, limited to a specific set of entities."
+        },
+        "readOnly": {
+          "value": false,
+          "description": "This tool may modify its environment by creating, updating, or deleting data."
+        },
+        "secret": {
+          "value": false,
+          "description": "This tool does not handle sensitive or secret information."
+        },
+        "localRequired": {
+          "value": false,
+          "description": "This tool is available in both local and remote server modes."
+        }
+      },
+      "mappedToolList": [
+        "healthmodels_delete",
+        "healthmodels_entity_delete",
+        "healthmodels_signal-definition_delete",
+        "healthmodels_relationship_delete",
+        "healthmodels_discovery-rule_delete",
+        "healthmodels_authentication-setting_delete",
+        "healthmodels_identity_remove"
+      ]
+    },
+    {
+      "name": "report_azure_health_model_entity_signals",
+      "description": "Report Azure Health Model entity signal data: ingest a health report for an entity and add data annotations.",
+      "toolMetadata": {
+        "destructive": {
+          "value": false,
+          "description": "This tool performs only additive updates without deleting or modifying existing resources."
+        },
+        "idempotent": {
+          "value": false,
+          "description": "Running this operation multiple times with the same arguments may have additional effects or produce different results."
+        },
+        "openWorld": {
+          "value": false,
+          "description": "This tool's domain of interaction is closed and well-defined, limited to a specific set of entities."
+        },
+        "readOnly": {
+          "value": false,
+          "description": "This tool may modify its environment by creating, updating, or deleting data."
+        },
+        "secret": {
+          "value": false,
+          "description": "This tool does not handle sensitive or secret information."
+        },
+        "localRequired": {
+          "value": false,
+          "description": "This tool is available in both local and remote server modes."
+        }
+      },
+      "mappedToolList": [
+        "healthmodels_entity_add-data-annotation",
+        "healthmodels_entity_ingest-health-report"
       ]
     }
   ]

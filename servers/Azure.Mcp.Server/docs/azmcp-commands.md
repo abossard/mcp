@@ -2711,6 +2711,328 @@ azmcp functions template get --language <language> \
                              [--runtime-version <runtime-version>]
 ```
 
+### Azure Health Models Operations
+
+#### Health Models
+
+```bash
+# List health models in a subscription (optionally scoped to a resource group)
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels list --subscription <subscription> \
+                                      [--resource-group <resource-group>]
+
+# Get a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Create a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --location <location> \
+                                      [--tags <json>]
+
+# Update a health model's tags
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --tags <json>
+
+# Delete a health model
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+```
+
+#### Entities
+
+```bash
+# List entities in a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity list --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Get an entity
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity>
+
+# Create an entity from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      --properties <json>
+
+# Update an entity from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      --properties <json>
+
+# Delete an entity
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity>
+
+# Get an entity's health state history
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity get-history --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      [--start-time <iso8601>] \
+                                      [--end-time <iso8601>] \
+                                      [--top <n>]
+
+# Get an entity's signal history
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity get-signal-history --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      --signal-name <name> \
+                                      [--start-time <iso8601>] \
+                                      [--end-time <iso8601>] \
+                                      [--top <n>]
+
+# Get recommended signals for an entity
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity get-signal-recommendation --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity>
+
+# Add a data annotation to an entity
+# ❌ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity add-data-annotation --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      --annotation-details <json> \
+                                      [--description <text>]
+
+# Get data annotations for an entity
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity get-data-annotations --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      [--start-time <iso8601>] \
+                                      [--end-time <iso8601>] \
+                                      [--top <n>]
+
+# Ingest a health report for an entity signal
+# ❌ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels entity ingest-health-report --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --entity <entity> \
+                                      --signal-name <name> \
+                                      --health-state <Healthy|Degraded|Unhealthy|Unknown> \
+                                      [--value <number>] \
+                                      [--expires-in-minutes <n>] \
+                                      [--additional-context <text>]
+```
+
+#### Signal Definitions
+
+```bash
+# List signal definitions in a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels signal-definition list --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Get a signal definition
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels signal-definition get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --signal-definition <signal-definition>
+
+# Create from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels signal-definition create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --signal-definition <signal-definition> \
+                                      --properties <json>
+
+# Update from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels signal-definition update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --signal-definition <signal-definition> \
+                                      --properties <json>
+
+# Delete
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels signal-definition delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --signal-definition <signal-definition>
+```
+
+#### Relationships
+
+```bash
+# List relationships in a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels relationship list --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Get a relationship
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels relationship get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --relationship <relationship>
+
+# Create from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels relationship create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --relationship <relationship> \
+                                      --properties <json>
+
+# Update from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels relationship update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --relationship <relationship> \
+                                      --properties <json>
+
+# Delete
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels relationship delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --relationship <relationship>
+```
+
+#### Discovery Rules
+
+```bash
+# List discovery rules in a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels discovery-rule list --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Get a discovery rule
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels discovery-rule get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --discovery-rule <discovery-rule>
+
+# Create from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels discovery-rule create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --discovery-rule <discovery-rule> \
+                                      --properties <json>
+
+# Update from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels discovery-rule update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --discovery-rule <discovery-rule> \
+                                      --properties <json>
+
+# Delete
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels discovery-rule delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --discovery-rule <discovery-rule>
+```
+
+#### Authentication Settings
+
+```bash
+# List authentication settings in a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels authentication-setting list --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Get a authentication setting
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels authentication-setting get --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --authentication-setting <authentication-setting>
+
+# Create from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels authentication-setting create --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --authentication-setting <authentication-setting> \
+                                      --properties <json>
+
+# Update from a properties JSON object
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels authentication-setting update --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --authentication-setting <authentication-setting> \
+                                      --properties <json>
+
+# Delete
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels authentication-setting delete --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --authentication-setting <authentication-setting>
+```
+
+#### Identity
+
+```bash
+# Show the managed identity of a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels identity show --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+
+# Assign a managed identity to a health model
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels identity assign --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model> \
+                                      --identity-type <SystemAssigned|UserAssigned|None> \
+                                      [--user-assigned-identities <comma-separated-ids>]
+
+# Remove the managed identity from a health model
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp healthmodels identity remove --subscription <subscription> \
+                                      --resource-group <resource-group> \
+                                      --health-model <health-model>
+```
+
+
 ### Azure Key Vault Operations
 
 #### Administration
@@ -3054,17 +3376,6 @@ azmcp monitor workspace log query --subscription <subscription> \
                                   --workspace <workspace> \
                                   --table "AppEvents_CL" \
                                   --query "| order by TimeGenerated desc"
-```
-
-#### Health Models
-
-```bash
-# Get the health of an entity
-# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp monitor healthmodels entity get --subscription <subscription> \
-                                      --resource-group <resource-group> \
-                                      --health-model <health-model-name> \
-                                      --entity <entity-id>
 ```
 
 #### Metrics

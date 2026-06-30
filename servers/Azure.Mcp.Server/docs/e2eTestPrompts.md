@@ -584,6 +584,24 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | functions_template_get | Show me a Cosmos DB trigger with an output binding in Java |
 | functions_template_get | Generate a MCP Tool trigger in TypeScript for Node.js 22 |
 
+## Azure Health Models
+
+| Tool Name | Test Prompt |
+|:----------|:----------|
+| healthmodels_list | List all Azure Health Models in subscription <subscription_id> |
+| healthmodels_list | Show me the health models in resource group <resource_group> |
+| healthmodels_get | Get the health model <health_model_name> in resource group <resource_group> |
+| healthmodels_create | Create a health model named <health_model_name> in resource group <resource_group> in <location> |
+| healthmodels_delete | Delete the health model <health_model_name> in resource group <resource_group> |
+| healthmodels_entity_list | List the entities in health model <health_model_name> |
+| healthmodels_entity_get | Show entity <entity_name> in health model <health_model_name> |
+| healthmodels_entity_get-history | Show the health history of entity <entity_name> in health model <health_model_name> |
+| healthmodels_signal-definition_list | List the signal definitions in health model <health_model_name> |
+| healthmodels_relationship_list | List the relationships in health model <health_model_name> |
+| healthmodels_discovery-rule_list | List the discovery rules in health model <health_model_name> |
+| healthmodels_authentication-setting_list | List the authentication settings in health model <health_model_name> |
+| healthmodels_identity_show | Show the managed identity of health model <health_model_name> |
+
 ## Azure Key Vault
 
 | Tool Name | Test Prompt |
@@ -768,7 +786,6 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | Tool Name | Test Prompt |
 |:----------|:----------|
 | monitor_activitylog_list | List the activity logs of the last month for <resource_name> |
-| monitor_healthmodels_entity_get | Show me the health status of entity <entity_id> using the health model <health_model_name> |
 | monitor_instrumentation_get-learning-resource | Get the onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Show me the content of the Azure Monitor onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Get the content of the Azure Monitor learning resource file at path <resource_path> |
