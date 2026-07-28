@@ -38,6 +38,19 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         "X-MSEdge-Ref"
     ];
 
+    private List<GeneralRegexSanitizer>? _generalRegexSanitizers;
+
+    public override List<GeneralRegexSanitizer> GeneralRegexSanitizers =>
+        _generalRegexSanitizers ??=
+        [
+            .. base.GeneralRegexSanitizers,
+            new(new GeneralRegexSanitizerBody
+            {
+                Regex = @"ResourceHealth-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+                Value = "ResourceHealth-Sanitized"
+            })
+        ];
+
     public override List<UriRegexSanitizer> UriRegexSanitizers { get; } =
     [
         new(new UriRegexSanitizerBody
@@ -73,6 +86,16 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         .. s_sanitizedHeaders.Select(h => new HeaderRegexSanitizer(new HeaderRegexSanitizerBody(h)))
     ];
 
+    // The default body-key sanitizers AZSDK3430 ($..id) and AZSDK3493 ($..name) replace the WHOLE
+    // value with "Sanitized". We disable both so CloudHealth ids and entity names are only
+    // base-name-sanitized (via the ResourceBaseName GeneralRegexSanitizer) and therefore stay
+    // DISTINCT. The health-model query test cross-references entity names between the entity list
+    // (.name) and the getHistory (.entityName) responses; with $..name active they would all
+    // collapse to the same "Sanitized" and the fan-out-only-to-matching-entities assertion could
+    // not distinguish entities. Subscription id, tenant id, createdBy/lastModifiedBy (email),
+    // resource group and displayName remain sanitized by their own dedicated rules.
+    public override List<string> DisabledDefaultSanitizers { get; } = ["AZSDK3430", "AZSDK3493"];
+
     public override CustomDefaultMatcher? TestMatcher => new()
     {
         CompareBodies = false
@@ -85,6 +108,22 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         _bingWebTestName = $"{Settings.ResourceBaseName}-bing-test";
         _healthModelParentName = $"{Settings.ResourceBaseName}-hm-a";
         _healthModelChildName = $"{Settings.ResourceBaseName}-hm-b";
+    }
+
+    // Every MCP tool returns one text content block carrying the whole serialized CommandResponse, regardless of what
+    // the individual command puts at `results`. Tests that pass `resultProcessor: root => root` reach that raw envelope
+    // and route it through here, so the same invariant is asserted against a bare-payload tool (monitor_healthmodels_list),
+    // a wrapper-payload tool (monitor_webtests_get) and the batch query tool (monitor_healthmodels_query). The expected
+    // key list is a parameter because a failure response legitimately omits `results` (JsonIgnore WhenWritingNull).
+    private static JsonElement AssertCommandResponseEnvelope(JsonElement? root, params string[] expectedKeys)
+    {
+        Assert.NotNull(root);
+        Assert.Equal(JsonValueKind.Object, root.Value.ValueKind);
+
+        var actualKeys = root.Value.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(expectedKeys.Order(StringComparer.Ordinal).ToArray(), actualKeys);
+
+        return root.Value.GetProperty("results");
     }
 
     // [Fact]
@@ -496,12 +535,15 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
     [Fact]
     public async Task Should_List_WebTests()
     {
-        var result = await CallToolAsync(
+        var envelope = await CallToolAsync(
             "monitor_webtests_get",
             new()
             {
                 { "subscription", Settings.SubscriptionId }
-            });
+            },
+            resultProcessor: root => root);
+
+        var result = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
 
         var webTestsArray = result.AssertProperty("webTests");
         Assert.Equal(JsonValueKind.Array, webTestsArray.ValueKind);
@@ -675,18 +717,20 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
     [Fact]
     public async Task Should_List_HealthModels()
     {
-        var result = await CallToolAsync(
+        var envelope = await CallToolAsync(
             "monitor_healthmodels_list",
             new()
             {
                 { "subscription", Settings.SubscriptionId },
                 { "resource-group", Settings.ResourceGroupName }
-            });
+            },
+            resultProcessor: root => root);
 
-        Assert.NotNull(result);
-        Assert.Equal(JsonValueKind.Array, result.Value.ValueKind);
+        var result = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
 
-        var models = result.Value.EnumerateArray().ToList();
+        Assert.Equal(JsonValueKind.Array, result.ValueKind);
+
+        var models = result.EnumerateArray().ToList();
         Assert.NotEmpty(models);
 
         Assert.All(models, model =>
@@ -733,6 +777,117 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         var healthState = healthModel.AssertProperty("healthState");
         Assert.Equal(JsonValueKind.String, healthState.ValueKind);
         Assert.Contains(healthState.GetString(), s_validHealthStates);
+    }
+
+    // Recorded end-to-end proof for the real ArmHealthModelCallRunner. Entity discovery and entity history each return
+    // exactly one SDK page with independent machine-readable completeness and the exact service continuation.
+    // Requires a fixture whose child model has an entity with >=2 history records and >=1 non-Healthy entity among
+    // several (see test-resources.healthmodels.module.bicep).
+    [Fact]
+    public async Task Should_Query_HealthModel_PagesHistoryAcrossMarkers_AndFansOutByRealHealthState()
+    {
+        var model = _healthModelChildName!;
+        var rootEntity = _healthModelChildName!;
+        var queries = $$"""
+            [
+              {"kind":"entityList","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}"},
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","entityName":"{{rootEntity}}","top":1},
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","healthFilter":"notHealthy","top":1}
+            ]
+            """;
+
+        var envelope = await CallToolAsync(
+            "monitor_healthmodels_query",
+            new()
+            {
+                { "subscription", Settings.SubscriptionId },
+                { "queries", queries }
+            },
+            resultProcessor: root => root);
+
+        var result = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
+
+        Assert.Equal(JsonValueKind.Array, result.ValueKind);
+        var ordered = result.EnumerateArray().ToList();
+        // Correlated by zero-based input position, returned in input order.
+        Assert.Equal(new[] { 0, 1, 2 }, ordered.Select(r => r.AssertProperty("queryIndex").GetInt32()));
+
+        // (2) Real health-state mapping: every entity node carries the verbatim SDK entity payload whose
+        //     properties.healthState is a genuine CloudHealth health-state string.
+        var entities = ordered[0];
+        Assert.True(entities.AssertProperty("success").GetBoolean());
+        Assert.Equal("entityList", entities.AssertProperty("kind").GetString());
+        var entityNodes = entities.AssertProperty("entities").EnumerateArray().ToList();
+        Assert.NotEmpty(entityNodes);
+        var listPage = entities.AssertProperty("page");
+        Assert.Equal(entityNodes.Count, listPage.AssertProperty("returnedCount").GetInt32());
+        Assert.True(listPage.AssertProperty("complete").GetBoolean());
+        Assert.All(entityNodes, n =>
+        {
+            var healthState = n.AssertProperty("entity").AssertProperty("properties").AssertProperty("healthState").GetString();
+            Assert.Contains(healthState, s_validHealthStates);
+        });
+
+        var notHealthy = entityNodes
+            .Where(n => n.AssertProperty("entity").AssertProperty("properties").AssertProperty("healthState").GetString() != EntityHealthState.Healthy.ToString())
+            .Select(n => n.AssertProperty("entityName").GetString())
+            .ToHashSet();
+        Assert.NotEmpty(notHealthy); // fixture must contain at least one non-Healthy entity for the fan-out to be meaningful
+
+        // top=1 is the API page size. One response exposes one record and the exact marker for the next request.
+        var history = ordered[1];
+        Assert.True(history.AssertProperty("success").GetBoolean());
+        var historyNode = Assert.Single(history.AssertProperty("entities").EnumerateArray().ToList());
+        var points = historyNode.AssertProperty("history").AssertProperty("history").EnumerateArray()
+            .Select(p => p.AssertProperty("occurredAt").GetDateTimeOffset())
+            .ToList();
+        Assert.Single(points);
+        var historyPage = historyNode.AssertProperty("page");
+        Assert.Equal(1, historyPage.AssertProperty("returnedCount").GetInt32());
+        Assert.False(historyPage.AssertProperty("complete").GetBoolean());
+        var nextMarker = historyPage.AssertProperty("nextMarker").GetString();
+        Assert.False(string.IsNullOrEmpty(nextMarker));
+
+        // (2) HealthFilter fan-out: the dependent per-entity query produced one envelope node per entity the list
+        //     reported as non-Healthy, resolved from the single shared entity list.
+        var fanOut = ordered[2];
+        Assert.True(fanOut.AssertProperty("success").GetBoolean());
+        var fanOutEntities = fanOut.AssertProperty("entities").EnumerateArray()
+            .Select(n => n.AssertProperty("entityName").GetString())
+            .ToHashSet();
+        Assert.NotEmpty(fanOutEntities);
+        Assert.All(fanOutEntities, name => Assert.Contains(name, notHealthy));
+        var discoveryPage = fanOut.AssertProperty("page");
+        Assert.Equal(entityNodes.Count, discoveryPage.AssertProperty("returnedCount").GetInt32());
+        Assert.True(discoveryPage.AssertProperty("complete").GetBoolean());
+
+        var resumeQueries = $$"""
+            [
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","entityName":"{{rootEntity}}","top":1,"nextMarker":{{JsonSerializer.Serialize(nextMarker)}}}
+            ]
+            """;
+        var resumeEnvelope = await CallToolAsync(
+            "monitor_healthmodels_query",
+            new()
+            {
+                { "subscription", Settings.SubscriptionId },
+                { "queries", resumeQueries }
+            },
+            resultProcessor: root => root);
+
+        var resumeResult = AssertCommandResponseEnvelope(resumeEnvelope, "duration", "message", "results", "status");
+        var resumedQuery = Assert.Single(resumeResult.EnumerateArray().ToList());
+        Assert.Equal(0, resumedQuery.AssertProperty("queryIndex").GetInt32());
+        Assert.True(resumedQuery.AssertProperty("success").GetBoolean());
+        var resumedNode = Assert.Single(resumedQuery.AssertProperty("entities").EnumerateArray().ToList());
+        Assert.Equal(rootEntity, resumedNode.AssertProperty("entityName").GetString());
+        var resumedPoint = Assert.Single(
+            resumedNode.AssertProperty("history").AssertProperty("history").EnumerateArray().ToList());
+        Assert.NotEqual(points[0], resumedPoint.AssertProperty("occurredAt").GetDateTimeOffset());
+        var resumedPage = resumedNode.AssertProperty("page");
+        Assert.True(resumedPage.AssertProperty("complete").GetBoolean());
+        Assert.Equal(1, resumedPage.AssertProperty("returnedCount").GetInt32());
+        Assert.False(resumedPage.TryGetProperty("nextMarker", out _));
     }
 
     #endregion

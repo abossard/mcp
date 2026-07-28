@@ -792,6 +792,9 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | monitor_healthmodels_get | Show me the health model <health_model_name> in resource group <resource_group> |
 | monitor_healthmodels_list | List the Azure Monitor health models in my subscription |
 | monitor_healthmodels_list | What health models are in resource group <resource_group>? |
+| monitor_healthmodels_query | Get the signal history for all unhealthy entities in health model <health_model_name> |
+| monitor_healthmodels_query | Batch query health model <health_model_name>: list its entities and their health history |
+| monitor_healthmodels_query | Continue the next API page for an entity history query in health model <health_model_name> |
 | monitor_instrumentation_get-learning-resource | Get the onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Show me the content of the Azure Monitor onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Get the content of the Azure Monitor learning resource file at path <resource_path> |

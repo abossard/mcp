@@ -1,0 +1,4 @@
+changes:
+  - section: "Features Added"
+    description: |
+      Added `azmcp monitor healthmodels query` to run a batch of typed, read-only Azure Monitor Health Model queries in a single call. Supported query kinds are entity list (optionally point-in-time), entity get, entity health history, signal history, signal recommendations, and data annotations. A stateless functional planner groups queries by model, deduplicates identical calls, and reuses one entity-list page for health-filtered queries. Results are compact by default with closed typed field groups for additional SDK fields. API-native pagination returns exactly one service page with explicit `page.complete` and `page.returnedCount`; callers resume entity discovery with `continuationToken` and per-entity history, signal history, or annotations with `nextMarker`. Results remain input-ordered by `queryIndex`, and per-entity failures do not erase successful siblings.

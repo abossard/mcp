@@ -7,6 +7,7 @@ using Azure.Mcp.Core.Services.Azure;
 using Azure.Mcp.Core.Services.Azure.Subscription;
 using Azure.Mcp.Core.Services.Azure.Tenant;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Planning;
 using Azure.ResourceManager.CloudHealth;
 using Azure.ResourceManager.Models;
 using Microsoft.Extensions.Logging;
@@ -126,5 +127,23 @@ public class MonitorHealthModelService(ISubscriptionService subscriptionService,
                 ex.Message);
             return null;
         }
+    }
+
+    public async Task<IReadOnlyList<HealthModelQueryResult>> ExecuteHealthModelQueries(
+        string subscription,
+        IReadOnlyList<HealthModelQuery> queries,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredParameters((nameof(subscription), subscription));
+        ArgumentNullException.ThrowIfNull(queries);
+
+        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
+        var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
+
+        var plan = HealthModelQueryPlanner.Plan(queries);
+        return await HealthModelQueryExecutor.ExecuteAsync(plan, runner, cancellationToken);
     }
 }

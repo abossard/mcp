@@ -3111,7 +3111,54 @@ azmcp monitor healthmodels list --subscription <subscription> \
 azmcp monitor healthmodels get --subscription <subscription> \
                                --resource-group <resource-group> \
                                --health-model <health-model-name>
+
+# Query (batch) health model entities, history, signals, and annotations in one typed call
+# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp monitor healthmodels query --subscription <subscription> \
+                                 --queries <queries-json-array>
 ```
+
+`--queries` is a JSON array of typed query objects. Each object supports `kind`, `resourceGroup`,
+`healthModel`, and the kind-specific `entityName`, `signalName`, `healthFilter`, `timestamp`,
+`startTime`, `endTime`, and `top` fields. `top` is the Azure API page size, not a total limit.
+`healthFilter` (`unhealthy`, `degraded`, `unknown`, `notHealthy`) is mutually exclusive with
+`entityName`. `notHealthy` is the closed set `unhealthy` + `degraded` + `unknown`; because the Azure
+health state is an extensible enum, any other state (such as `deleted`, or a state Azure adds later)
+is excluded — omit the filter to receive every entity. On `entityList` the filter keeps only the
+entities in that health state from the page already fetched, so `page.returnedCount` reports the
+filtered count while `page.complete` and `continuationToken` stay the API's own answer for the
+unfiltered page. A page whose entities all fail the filter therefore reports `returnedCount` `0`
+with the API's own `complete`. On the per-entity kinds it runs the query against every entity
+matching that state instead of one named entity. It is rejected on `entityGet`, which returns a
+single named entity — use `entityList` to filter by health state.
+Results are compact by default. The optional closed `fields` array adds only these groups:
+
+| Field group | Applicable query kinds | Approximate addition | Band |
+|---|---|---:|---|
+| `identity` | `entityList`, `entityGet` | 233–247 B/item | medium |
+| `audit` | `entityList`, `entityGet` | 75–222 B/item | medium |
+| `signals` | `entityList`, `entityGet` | ~207 B/item on a one-signal fixture; collection-scaled | large |
+| `layout` | `entityList`, `entityGet` | 0–62 B/item | small |
+| `context` | `signalHistory` | ~66 B/item | small |
+| `details` | `dataAnnotations` | ~77 B/item; may be kilobytes | large |
+| `configurations` | `signalRecommendations` | unmeasured; collection-scaled | large |
+| `full` | `entityList`, `entityGet` | exact SDK JSON; +~638 B/item | large |
+| `full` | `entityHistory` | exact SDK JSON; wrapper metadata <100 B/node | small |
+| `full` | `signalHistory` | exact SDK JSON; context +~66 B/item plus wrapper metadata | small per item |
+| `full` | `dataAnnotations` | exact SDK JSON; details +~77 B/item typically, potentially >300 B | small typically; potentially large |
+| `full` | `signalRecommendations` | exact SDK JSON; configurations unmeasured/collection-scaled | large |
+
+Bands are small (<100 B/item), medium (100–300 B/item), and large (>300 B/item or
+collection-scaled). Costs were measured on one recorded fixture and one real session; real models
+vary — treat as order-of-magnitude. Item count can dominate bytes.
+
+Each call returns one Azure API page. Every successful pageable query or entity node includes
+`page.complete` and `page.returnedCount`. An incomplete entity list or health-filter discovery page
+also includes the exact `continuationToken`; reissue the same query with that token. An incomplete
+`entityHistory`, `signalHistory`, or `dataAnnotations` entity node includes its exact `nextMarker`;
+resume with a concrete `entityName` and that marker, without `startTime` or `endTime`. Continue until
+every relevant `page.complete` is `true`. These tokens are caller-owned API values; no MCP total,
+cursor cache, or automatic continuation is implied.
 
 #### Metrics
 

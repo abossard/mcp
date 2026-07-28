@@ -234,3 +234,5 @@ module healthModelsModule 'test-resources.healthmodels.module.bicep' = {
 
 output healthModelParentName string = healthModelsModule.outputs.healthModelAName
 output healthModelChildName string = healthModelsModule.outputs.healthModelBName
+output healthModelChildLeafHealthyName string = healthModelsModule.outputs.healthModelBLeafHealthyName
+output healthModelChildLeafDegradedName string = healthModelsModule.outputs.healthModelBLeafDegradedName

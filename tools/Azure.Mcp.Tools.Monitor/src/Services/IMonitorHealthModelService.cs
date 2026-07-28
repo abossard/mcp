@@ -41,4 +41,24 @@ public interface IMonitorHealthModelService
         string? tenant = null,
         RetryPolicyOptions? retryPolicy = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executes a batch of typed health-model read queries in a single call. The queries are planned into
+    /// the minimum set of Azure Resource Manager calls (grouped by model, deduplicated, health-filtered) and
+    /// each input query yields exactly one result, correlated by its zero-based input position (queryIndex)
+    /// and returned in input order. Per-entity failures are isolated on their own entity node so a single
+    /// failing entity does not abort the query or the rest of the batch.
+    /// </summary>
+    /// <param name="subscription">Subscription ID or name.</param>
+    /// <param name="queries">The batch of queries to execute.</param>
+    /// <param name="tenant">Optional tenant ID.</param>
+    /// <param name="retryPolicy">Optional retry policy.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>One result per input query, in input order.</returns>
+    Task<IReadOnlyList<HealthModelQueryResult>> ExecuteHealthModelQueries(
+        string subscription,
+        IReadOnlyList<HealthModelQuery> queries,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default);
 }
