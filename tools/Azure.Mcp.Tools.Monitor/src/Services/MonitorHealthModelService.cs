@@ -137,7 +137,7 @@ public class MonitorHealthModelService(IAzureService azureService, ILogger<Monit
         ValidateRequiredParameters((nameof(subscription), subscription));
         ArgumentNullException.ThrowIfNull(queries);
 
-        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var subscriptionResource = await AzureService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
         var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
         var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
 
@@ -154,7 +154,7 @@ public class MonitorHealthModelService(IAzureService azureService, ILogger<Monit
     {
         ValidateRequiredParameters((nameof(subscription), subscription), (nameof(code), code));
 
-        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var subscriptionResource = await AzureService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
         var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
         var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
 
@@ -175,7 +175,7 @@ public class MonitorHealthModelService(IAzureService azureService, ILogger<Monit
         ValidateRequiredParameters((nameof(subscription), subscription));
         ArgumentNullException.ThrowIfNull(changes);
 
-        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var subscriptionResource = await AzureService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
         var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
         var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
 
