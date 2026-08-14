@@ -232,6 +232,6 @@ public class HealthModelEntityResultSerializationTests
         var page = root.GetProperty("page");
         Assert.False(page.GetProperty("complete").GetBoolean());
         Assert.Equal(1, page.GetProperty("returnedCount").GetInt32());
-        Assert.Equal(expectedMarker, page.GetProperty("nextMarker").GetString());
+        Assert.Equal(expectedMarker, page.GetProperty("cursor").GetString());
     }
 }

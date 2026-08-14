@@ -556,6 +556,20 @@
     "List the Azure Monitor health models in my subscription",
     "What health models are in resource group <resource_group>?"
   ],
+  "monitor_healthmodels_query": [
+    "Get the signal history for all unhealthy entities in health model <health_model_name>",
+    "Batch query health model <health_model_name>: list its entities and their health history",
+    "Continue the next API page for an entity history query in health model <health_model_name>",
+    "Show the point-in-time state of health model <health_model_name> and the recommendations for its degraded entities",
+    "Show the dependency graph of health model <health_model_name>",
+    "What signals are defined on health model <health_model_name> and what are their unhealthy thresholds?"
+  ],
+  "monitor_healthmodels_sdk": [
+    "Write a script that counts the unhealthy entities in health model <health_model_name>",
+    "Use JavaScript to find which entities in health model <health_model_name> have been degraded the longest",
+    "Run code against the CloudHealth SDK to summarise health model <health_model_name> by health state",
+    "Script a walk of the dependency graph in health model <health_model_name> and return only the root causes"
+  ],
   "monitor_metrics_definitions": [
     "Get metric definitions for <resource_type> <resource_name> from the namespace",
     "Show me all available metrics and their definitions for storage account <account_name>",

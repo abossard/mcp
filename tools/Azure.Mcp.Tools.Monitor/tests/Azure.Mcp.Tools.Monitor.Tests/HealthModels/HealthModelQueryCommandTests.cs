@@ -7,6 +7,7 @@ using Azure.Mcp.Tests.Commands;
 using Azure.Mcp.Tools.Monitor.Commands;
 using Azure.Mcp.Tools.Monitor.Commands.HealthModels;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 using Azure.Mcp.Tools.Monitor.Services;
 using Microsoft.Mcp.Core.Options;
 using NSubstitute;
@@ -23,7 +24,7 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
     private const string TwoQueriesJson = """
         [
           {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","label":"first"},
-          {"kind":"entityHistory","resourceGroup":"rg1","healthModel":"hm1","entityName":"e1"}
+          {"kind":"entityGet","resourceGroup":"rg1","healthModel":"hm1","entity":"e1"}
         ]
         """;
 
@@ -55,7 +56,7 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
         // H1: an id-less batch validates and both typed queries (with their labels) are forwarded to the service.
         await Service.Received(1).ExecuteHealthModelQueries(
             TestSubscription,
-            Arg.Is<IReadOnlyList<HealthModelQuery>>(q => q.Count == 2 && q[0].Label == "first" && q[0].Kind == HealthModelQueryKind.EntityList && q[1].EntityName == "e1" && q[1].Label == null),
+            Arg.Is<IReadOnlyList<HealthModelQuery>>(q => q.Count == 2 && q[0].Label == "first" && q[0] is EntityListQuery && ((EntityGetQuery)q[1]).Entity == "e1" && q[1].Label == null),
             Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
     }
 
@@ -68,7 +69,7 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
         const string json = """
             [
               {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","label":"dup"},
-              {"kind":"entityGet","resourceGroup":"rg1","healthModel":"hm1","entityName":"e1","label":"dup"},
+              {"kind":"entityGet","resourceGroup":"rg1","healthModel":"hm1","entity":"e1","label":"dup"},
               {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1"},
               {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1"}
             ]
@@ -83,13 +84,13 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
     }
 
     [Fact]
-    public async Task ExecuteAsync_ParsesTypedFieldsAndOpaqueContinuationOptions()
+    public async Task ExecuteAsync_ParsesTypedSelectionsAndOpaqueCursors()
     {
         EchoServiceResults();
         const string json = """
             [
-              {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","continuationToken":"list/+==","fields":["identity","audit"]},
-              {"kind":"entityHistory","resourceGroup":"rg1","healthModel":"hm1","entityName":"e1","nextMarker":"entity/+==","top":25,"fields":["full"]}
+              {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","page":{"cursor":"list/+=="},"select":["identity","audit"]},
+              {"kind":"entityHistory","resourceGroup":"rg1","healthModel":"hm1","target":{"entity":"e1"},"page":{"cursor":"entity/+==","size":25},"select":["full"]}
             ]
             """;
 
@@ -99,11 +100,11 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
         await Service.Received(1).ExecuteHealthModelQueries(
             TestSubscription,
             Arg.Is<IReadOnlyList<HealthModelQuery>>(queries =>
-                queries[0].ContinuationToken == "list/+==" &&
-                queries[0].Fields!.SequenceEqual(new[] { HealthModelFieldGroup.Identity, HealthModelFieldGroup.Audit }) &&
-                queries[1].NextMarker == "entity/+==" &&
-                queries[1].Top == 25 &&
-                queries[1].Fields!.SequenceEqual(new[] { HealthModelFieldGroup.Full })),
+                ((EntityListQuery)queries[0]).Page!.Cursor == "list/+==" &&
+                ((EntityListQuery)queries[0]).Select!.SequenceEqual(new[] { EntitySelection.Identity, EntitySelection.Audit }) &&
+                ((EntityHistoryQuery)queries[1]).Page!.Cursor == "entity/+==" &&
+                ((EntityHistoryQuery)queries[1]).Page!.Size == 25 &&
+                ((EntityHistoryQuery)queries[1]).Select!.SequenceEqual(new[] { FullSelection.Full })),
             Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
     }
 
@@ -145,11 +146,11 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
         var listPage = document.RootElement[0].GetProperty("page");
         Assert.False(listPage.GetProperty("complete").GetBoolean());
         Assert.Equal(0, listPage.GetProperty("returnedCount").GetInt32());
-        Assert.Equal("more", listPage.GetProperty("continuationToken").GetString());
+        Assert.Equal("more", listPage.GetProperty("cursor").GetString());
         var entityPage = document.RootElement[1].GetProperty("entities")[0].GetProperty("page");
         Assert.True(entityPage.GetProperty("complete").GetBoolean());
         Assert.Equal(0, entityPage.GetProperty("returnedCount").GetInt32());
-        Assert.False(entityPage.TryGetProperty("nextMarker", out _));
+        Assert.False(entityPage.TryGetProperty("cursor", out _));
         Assert.DoesNotContain("maxItems", json);
         Assert.DoesNotContain("truncated", json);
         Assert.DoesNotContain("totalCount", json);
@@ -216,7 +217,7 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
     [Theory]
     [InlineData("not-json")]
     [InlineData("[]")]
-    [InlineData("""[{"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","fields":["arbitrary.path"]}]""")]
+    [InlineData("""{"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1"}""")]
     public async Task ExecuteAsync_ReturnsBadRequest_ForInvalidQueriesInput(string queriesJson)
     {
         var response = await ExecuteCommandAsync("--subscription", TestSubscription, "--queries", queriesJson);
@@ -234,5 +235,29 @@ public class HealthModelQueryCommandTests : SubscriptionCommandUnitTestsBase<Hea
         Assert.Equal(HttpStatusCode.BadRequest, response.Status);
         await Service.DidNotReceive().ExecuteHealthModelQueries(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<HealthModelQuery>>(), Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_IsolatesAMalformedQuery_AtTheCommandBoundary()
+    {
+        EchoServiceResults();
+
+        // One unreadable element among three. The batch still runs; only its own slot fails.
+        const string json = """
+            [
+              {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1"},
+              {"kind":"entityList","resourceGroup":"rg1","healthModel":"hm1","signal":"cpu"},
+              {"kind":"entityGet","resourceGroup":"rg1","healthModel":"hm1","entity":"e1"}
+            ]
+            """;
+
+        var response = await ExecuteCommandAsync("--subscription", TestSubscription, "--queries", json);
+
+        Assert.Equal(HttpStatusCode.OK, response.Status);
+        await Service.Received(1).ExecuteHealthModelQueries(
+            TestSubscription,
+            Arg.Is<IReadOnlyList<HealthModelQuery>>(q =>
+                q.Count == 3 && q[0] is EntityListQuery && q[1] is MalformedQuery && q[2] is EntityGetQuery),
+            Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
     }
 }

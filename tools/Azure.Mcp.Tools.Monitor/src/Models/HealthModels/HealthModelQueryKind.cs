@@ -28,4 +28,10 @@ public enum HealthModelQueryKind
 
     /// <summary>Get the data annotations of an entity.</summary>
     DataAnnotations,
+
+    /// <summary>List the parent/child relationships of a health model (optionally as-of a point in time).</summary>
+    RelationshipList,
+
+    /// <summary>List the signal definitions of a health model (optionally as-of a point in time).</summary>
+    SignalDefinitionList,
 }

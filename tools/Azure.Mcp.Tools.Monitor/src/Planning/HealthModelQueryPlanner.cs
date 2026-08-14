@@ -2,30 +2,25 @@
 // Licensed under the MIT License.
 
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 
 namespace Azure.Mcp.Tools.Monitor.Planning;
 
 /// <summary>
 /// Pure, stateless transformation from a batch of <see cref="HealthModelQuery"/> into an immutable
-/// <see cref="ExecutionPlan"/>. It normalizes and validates queries, groups them by (resource group,
-/// health model) so calls against one model are contiguous and share a single model resolution,
-/// deduplicates calls that reduce to the same Azure Resource Manager request, reuses one entity list
-/// per model to resolve health-filtered queries, and orders each group so the entity list precedes the
-/// per-entity calls that depend on it.
+/// <see cref="ExecutionPlan"/>. It normalizes queries, groups them by (resource group, health model) so
+/// calls against one model are contiguous and share a single model resolution, deduplicates calls that
+/// reduce to the same Azure Resource Manager request, reuses one entity list per model to resolve
+/// health-filtered queries, and orders each group so the entity list precedes the per-entity calls that
+/// depend on it.
 ///
 /// The planner has no I/O, service, ARM, or network dependency; it is a deterministic function of its
-/// input and is exercised directly by unit tests.
+/// input and is exercised directly by unit tests. It carries no per-kind field-combination rules: each
+/// query type admits only the inputs its kind accepts, so those combinations are rejected at
+/// deserialization rather than re-checked here.
 /// </summary>
 internal static class HealthModelQueryPlanner
 {
-    private static readonly HealthModelQueryKind[] DeferrablePerEntityKinds =
-    [
-        HealthModelQueryKind.EntityHistory,
-        HealthModelQueryKind.SignalHistory,
-        HealthModelQueryKind.SignalRecommendations,
-        HealthModelQueryKind.DataAnnotations,
-    ];
-
     internal static ExecutionPlan Plan(IReadOnlyList<HealthModelQuery> queries)
     {
         ArgumentNullException.ThrowIfNull(queries);
@@ -36,9 +31,15 @@ internal static class HealthModelQueryPlanner
         for (var index = 0; index < queries.Count; index++)
         {
             var query = queries[index];
-            if (TryNormalize(query, index, out var norm, out var error))
+            if (HealthModelQueryNormalizer.TryNormalize(query, out var inputs, out var error))
             {
-                normalized.Add(norm);
+                normalized.Add(new NormalizedQuery(
+                    query.QueryKind,
+                    inputs,
+                    index,
+                    MapKind(query.QueryKind),
+                    new PlanScope(query.ResourceGroup, query.HealthModel),
+                    IsDeferred: IsPerEntity(query.QueryKind) && string.IsNullOrWhiteSpace(inputs.EntityName)));
             }
             else
             {
@@ -49,119 +50,72 @@ internal static class HealthModelQueryPlanner
         var groups = new List<PlanGroup>();
         foreach (var scope in DistinctScopesInOrder(normalized))
         {
-            var scopeQueries = normalized.Where(n => n.Scope == scope).ToList();
-            groups.Add(BuildGroup(scope, scopeQueries));
+            groups.Add(BuildGroup(scope, [.. normalized.Where(n => n.Scope == scope)]));
         }
 
         return new ExecutionPlan(
             groups,
             diagnostics,
             queries.Count,
-            queries.Select(query => HealthModelResultShape.From(query.Fields)).ToList(),
-            queries.Select(query => query.Kind == HealthModelQueryKind.EntityList ? query.HealthFilter : null).ToList());
+            [.. queries.Select((_, index) => ShapeOf(normalized, index))],
+            [.. queries.Select((_, index) => ListFilterOf(normalized, index))]);
     }
 
-    private static bool TryNormalize(HealthModelQuery query, int index, out NormalizedQuery norm, out string error)
-    {
-        norm = default!;
-        error = string.Empty;
+    private static HealthModelResultShape ShapeOf(List<NormalizedQuery> normalized, int index) =>
+        normalized.FirstOrDefault(n => n.Index == index)?.Inputs.Shape ?? HealthModelResultShape.Compact;
 
-        if (string.IsNullOrWhiteSpace(query.ResourceGroup) || string.IsNullOrWhiteSpace(query.HealthModel))
-        {
-            error = "resourceGroup and healthModel are required.";
-            return false;
-        }
-
-        var scope = new PlanScope(query.ResourceGroup, query.HealthModel);
-
-        if (!TryValidateFields(query, out error) || !TryValidatePaging(query, out error) ||
-            !TryValidateTargeting(query, out error))
-        {
-            return false;
-        }
-
-        switch (query.Kind)
-        {
-            case HealthModelQueryKind.EntityList:
-                norm = new NormalizedQuery(query, index, HealthModelCallKind.ListEntities, scope, IsDeferred: false);
-                return true;
-
-            case HealthModelQueryKind.EntityGet:
-                if (query.HealthFilter is not null)
-                {
-                    error = "healthFilter is not supported for entityGet; use entityList with healthFilter to read " +
-                        "every matching entity from a single list call.";
-                    return false;
-                }
-                if (string.IsNullOrWhiteSpace(query.EntityName))
-                {
-                    error = "entityName is required for entityGet.";
-                    return false;
-                }
-                norm = new NormalizedQuery(query, index, HealthModelCallKind.GetEntity, scope, IsDeferred: false);
-                return true;
-
-            default:
-                if (!DeferrablePerEntityKinds.Contains(query.Kind))
-                {
-                    error = $"Unsupported query kind '{query.Kind}'.";
-                    return false;
-                }
-
-                if (query.Kind == HealthModelQueryKind.SignalHistory && string.IsNullOrWhiteSpace(query.SignalName))
-                {
-                    error = "signalName is required for signalHistory.";
-                    return false;
-                }
-
-                var hasEntity = !string.IsNullOrWhiteSpace(query.EntityName);
-                if (!hasEntity && query.HealthFilter is null)
-                {
-                    error = $"entityName or healthFilter is required for {ToCamel(query.Kind)}.";
-                    return false;
-                }
-
-                norm = new NormalizedQuery(query, index, MapKind(query.Kind), scope, IsDeferred: !hasEntity);
-                return true;
-        }
-    }
+    /// <summary>
+    /// The health filter an entity-list slot applies to the shared page it received. Only entity lists
+    /// filter in place; every other kind fans out instead.
+    /// </summary>
+    private static HealthModelHealthFilter? ListFilterOf(List<NormalizedQuery> normalized, int index) =>
+        normalized.FirstOrDefault(n => n.Index == index) is { Kind: HealthModelQueryKind.EntityList } entityList
+            ? entityList.Inputs.WhereHealth
+            : null;
 
     private static PlanGroup BuildGroup(PlanScope scope, IReadOnlyList<NormalizedQuery> scopeQueries)
     {
-        // 1) Explicit entity-list queries, one call per distinct timestamp (deduplicated, indexes merged).
+        // 0) Model-scope collection lists (relationships, signal definitions): one call per distinct
+        //    (collection, as-of, page). They depend on nothing and nothing depends on them.
+        var modelScopeCalls = DeduplicateCalls(
+            scopeQueries.Where(n => HealthModelCallKinds.IsModelScopeList(n.CallKind)),
+            keySelector: n => (n.CallKind, n.Inputs.AsOf, n.Inputs.Cursor),
+            callFactory: (n, indexes) => ListCall(n.CallKind, scope, n.Inputs.AsOf, n.Inputs.Cursor, indexes));
+
+        // 1) Explicit entity-list queries, one call per distinct as-of and page.
         var listCalls = DeduplicateCalls(
             scopeQueries.Where(n => n.CallKind == HealthModelCallKind.ListEntities),
-            keySelector: n => new ListPageKey(n.Query.Timestamp, n.Query.ContinuationToken),
-            callFactory: (n, indexes) => ListCall(scope, n.Query.Timestamp, n.Query.ContinuationToken, indexes));
+            keySelector: n => (n.Inputs.AsOf, n.Inputs.Cursor),
+            callFactory: (n, indexes) => ListCall(HealthModelCallKind.ListEntities, scope, n.Inputs.AsOf, n.Inputs.Cursor, indexes));
 
         // 2) One shared current-time entity-list page gates each distinct health-filter discovery page.
-        foreach (var continuationToken in scopeQueries
+        foreach (var cursor in scopeQueries
                      .Where(query => query.IsDeferred)
-                     .Select(query => query.Query.ContinuationToken)
+                     .Select(query => query.Inputs.Cursor)
                      .Distinct(StringComparer.Ordinal))
         {
-            if (!listCalls.Any(call =>
-                    call.Timestamp is null &&
-                    string.Equals(call.ContinuationToken, continuationToken, StringComparison.Ordinal)))
+            if (!listCalls.Any(call => call.AsOf is null && string.Equals(call.Cursor, cursor, StringComparison.Ordinal)))
             {
-                listCalls = [.. listCalls, ListCall(scope, timestamp: null, continuationToken, queryIndexes: [])];
+                listCalls = [.. listCalls, ListCall(HealthModelCallKind.ListEntities, scope, asOf: null, cursor, queryIndexes: [])];
             }
         }
 
-        // 3) Concrete per-entity calls (fixed entity), deduplicated by call shape.
+        // 3) Concrete entity-scoped calls (fixed entity), deduplicated by call shape. Entity get is
+        //     entity-scoped but never deferred, so it belongs here rather than with the fan-out kinds.
         var concreteCalls = DeduplicateCalls(
-            scopeQueries.Where(n => !n.IsDeferred && n.CallKind != HealthModelCallKind.ListEntities),
-            keySelector: n => (n.CallKind, n.Query.EntityName, n.Query.SignalName, n.Query.StartTime, n.Query.EndTime, n.Query.Top, n.Query.NextMarker),
-            callFactory: (n, indexes) => PerEntityCall(scope, n, entityName: n.Query.EntityName, healthFilter: null, indexes));
+            scopeQueries.Where(n => !n.IsDeferred && (IsPerEntity(n.Kind) || n.Kind == HealthModelQueryKind.EntityGet)),
+            keySelector: n => (n.CallKind, n.Inputs.EntityName, n.Inputs.SignalName, n.Inputs.From, n.Inputs.To, n.Inputs.Size, n.Inputs.Cursor),
+            callFactory: (n, indexes) => PerEntityCall(scope, n, n.Inputs.EntityName, healthFilter: null, indexes));
 
         // 4) Deferred per-entity calls (health-filtered), deduplicated by call shape.
         var deferredCalls = DeduplicateCalls(
             scopeQueries.Where(n => n.IsDeferred),
-            keySelector: n => (n.CallKind, (string?)null, n.Query.SignalName, n.Query.StartTime, n.Query.EndTime, n.Query.Top, n.Query.HealthFilter, n.Query.ContinuationToken),
-            callFactory: (n, indexes) => PerEntityCall(scope, n, entityName: null, healthFilter: n.Query.HealthFilter, indexes));
+            keySelector: n => (n.CallKind, (string?)null, n.Inputs.SignalName, n.Inputs.From, n.Inputs.To, n.Inputs.Size, n.Inputs.WhereHealth, n.Inputs.Cursor),
+            callFactory: (n, indexes) => PerEntityCall(scope, n, entityName: null, n.Inputs.WhereHealth, indexes));
 
-        // Ordering: entity lists first, then concrete per-entity, then deferred per-entity.
-        var ordered = new List<PlannedCall>(listCalls.Count + concreteCalls.Count + deferredCalls.Count);
+        // Ordering: model-scope lists, then entity lists, then concrete per-entity, then deferred per-entity.
+        var ordered = new List<PlannedCall>(modelScopeCalls.Count + listCalls.Count + concreteCalls.Count + deferredCalls.Count);
+        ordered.AddRange(modelScopeCalls);
         ordered.AddRange(listCalls);
         ordered.AddRange(concreteCalls);
         ordered.AddRange(deferredCalls);
@@ -192,20 +146,20 @@ internal static class HealthModelQueryPlanner
             indexes.Add(norm.Index);
         }
 
-        return order.Select(key => callFactory(firstByKey[key], indexesByKey[key])).ToList();
+        return [.. order.Select(key => callFactory(firstByKey[key], indexesByKey[key]))];
     }
 
     private static PlannedCall ListCall(
-        PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, IReadOnlyList<int> queryIndexes) =>
-        new(HealthModelCallKind.ListEntities, scope, EntityName: null, SignalName: null,
-            StartTime: null, EndTime: null, Top: null, Timestamp: timestamp, HealthFilter: null,
-            NextMarker: null, continuationToken, queryIndexes);
+        HealthModelCallKind kind, PlanScope scope, DateTimeOffset? asOf, string? cursor, IReadOnlyList<int> queryIndexes) =>
+        new(kind, scope, EntityName: null, SignalName: null,
+            From: null, To: null, Size: null, AsOf: asOf, HealthFilter: null, cursor, queryIndexes);
 
     private static PlannedCall PerEntityCall(
-        PlanScope scope, NormalizedQuery norm, string? entityName, HealthModelHealthFilter? healthFilter, IReadOnlyList<int> queryIndexes) =>
-        new(norm.CallKind, scope, entityName, norm.Query.SignalName,
-            norm.Query.StartTime, norm.Query.EndTime, norm.Query.Top, Timestamp: null, healthFilter,
-            norm.Query.NextMarker, norm.Query.ContinuationToken, queryIndexes);
+        PlanScope scope, NormalizedQuery norm, string? entityName, HealthModelHealthFilter? healthFilter,
+        IReadOnlyList<int> queryIndexes) =>
+        new(norm.CallKind, scope, entityName, norm.Inputs.SignalName,
+            norm.Inputs.From, norm.Inputs.To, norm.Inputs.Size, AsOf: null, healthFilter,
+            norm.Inputs.Cursor, queryIndexes);
 
     private static IEnumerable<PlanScope> DistinctScopesInOrder(IEnumerable<NormalizedQuery> normalized)
     {
@@ -219,7 +173,11 @@ internal static class HealthModelQueryPlanner
         }
     }
 
-    private static HealthModelCallKind MapKind(HealthModelQueryKind kind) => kind switch
+    private static bool IsPerEntity(HealthModelQueryKind kind) =>
+        kind is HealthModelQueryKind.EntityHistory or HealthModelQueryKind.SignalHistory
+            or HealthModelQueryKind.SignalRecommendations or HealthModelQueryKind.DataAnnotations;
+
+    internal static HealthModelCallKind MapKind(HealthModelQueryKind kind) => kind switch
     {
         HealthModelQueryKind.EntityList => HealthModelCallKind.ListEntities,
         HealthModelQueryKind.EntityGet => HealthModelCallKind.GetEntity,
@@ -227,116 +185,16 @@ internal static class HealthModelQueryPlanner
         HealthModelQueryKind.SignalHistory => HealthModelCallKind.GetSignalHistory,
         HealthModelQueryKind.SignalRecommendations => HealthModelCallKind.GetSignalRecommendations,
         HealthModelQueryKind.DataAnnotations => HealthModelCallKind.GetDataAnnotations,
+        HealthModelQueryKind.RelationshipList => HealthModelCallKind.ListRelationships,
+        HealthModelQueryKind.SignalDefinitionList => HealthModelCallKind.ListSignalDefinitions,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported query kind."),
     };
 
-    private static string ToCamel(HealthModelQueryKind kind)
-    {
-        var name = kind.ToString();
-        return char.ToLowerInvariant(name[0]) + name[1..];
-    }
-
-    private sealed record NormalizedQuery(HealthModelQuery Query, int Index, HealthModelCallKind CallKind, PlanScope Scope, bool IsDeferred);
-
-    /// <summary>
-    /// Validates the two targeting inputs before any kind-specific rule runs, so an out-of-range enum value or a
-    /// query that supplies both targets is reported as an invalid query rather than silently matching nothing or
-    /// having one input quietly discarded.
-    /// </summary>
-    private static bool TryValidateTargeting(HealthModelQuery query, out string error)
-    {
-        error = string.Empty;
-
-        if (query.HealthFilter is not { } filter)
-        {
-            return true;
-        }
-
-        if (!Enum.IsDefined(filter))
-        {
-            error = $"healthFilter '{(int)filter}' is not a valid health filter.";
-            return false;
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.EntityName))
-        {
-            error = "entityName and healthFilter are mutually exclusive; supply one or the other.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryValidatePaging(HealthModelQuery query, out string error)
-    {
-        error = string.Empty;
-
-        if (query.NextMarker is not null)
-        {
-            if (query.Kind is not (HealthModelQueryKind.EntityHistory or HealthModelQueryKind.SignalHistory or HealthModelQueryKind.DataAnnotations))
-            {
-                error = $"nextMarker is not valid for {ToCamel(query.Kind)}.";
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(query.EntityName) || query.HealthFilter is not null)
-            {
-                error = "nextMarker requires a concrete entityName and cannot be used with healthFilter.";
-                return false;
-            }
-            if (query.StartTime is not null || query.EndTime is not null)
-            {
-                error = "nextMarker cannot be combined with startTime or endTime.";
-                return false;
-            }
-        }
-
-        if (query.ContinuationToken is not null &&
-            query.Kind != HealthModelQueryKind.EntityList &&
-            (query.HealthFilter is null || !string.IsNullOrWhiteSpace(query.EntityName)))
-        {
-            error = "continuationToken is valid only for entityList or health-filter discovery.";
-            return false;
-        }
-
-        if (query.NextMarker is not null && query.ContinuationToken is not null)
-        {
-            error = "nextMarker and continuationToken cannot be combined.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryValidateFields(HealthModelQuery query, out string error)
-    {
-        error = string.Empty;
-        if (query.Fields is null)
-        {
-            return true;
-        }
-
-        foreach (var field in query.Fields)
-        {
-            var applicable = field == HealthModelFieldGroup.Full || query.Kind switch
-            {
-                HealthModelQueryKind.EntityList or HealthModelQueryKind.EntityGet =>
-                    field is HealthModelFieldGroup.Identity or HealthModelFieldGroup.Audit or
-                        HealthModelFieldGroup.Signals or HealthModelFieldGroup.Layout,
-                HealthModelQueryKind.SignalHistory => field == HealthModelFieldGroup.Context,
-                HealthModelQueryKind.SignalRecommendations => field == HealthModelFieldGroup.Configurations,
-                HealthModelQueryKind.DataAnnotations => field == HealthModelFieldGroup.Details,
-                _ => false,
-            };
-
-            if (!applicable)
-            {
-                error = $"Field group '{field}' is not valid for query kind '{query.Kind}'.";
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private readonly record struct ListPageKey(DateTimeOffset? Timestamp, string? ContinuationToken);
+    private sealed record NormalizedQuery(
+        HealthModelQueryKind Kind,
+        QueryInputs Inputs,
+        int Index,
+        HealthModelCallKind CallKind,
+        PlanScope Scope,
+        bool IsDeferred);
 }

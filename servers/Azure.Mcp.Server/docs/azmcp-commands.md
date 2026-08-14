@@ -3112,28 +3112,112 @@ azmcp monitor healthmodels get --subscription <subscription> \
                                --resource-group <resource-group> \
                                --health-model <health-model-name>
 
-# Query (batch) health model entities, history, signals, and annotations in one typed call
+# Query (batch) health model entities, history, signals, topology, and annotations in one typed call
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
 azmcp monitor healthmodels query --subscription <subscription> \
                                  --queries <queries-json-array>
+
+# EXPERIMENTAL: apply a batch of typed changes to a health model's entities, relationships and signal definitions
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp monitor healthmodels graphedit --subscription <subscription> \
+                                     --changes <changes-json-array> \
+                                     [--mode whatIf|apply] \
+                                     [--expect <expectation-json>]
+
+# EXPERIMENTAL: run JavaScript against the authenticated CloudHealth SDK in a sandbox (code mode)
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp monitor healthmodels sdk --subscription <subscription> \
+                               --code <javascript>
 ```
 
-`--queries` is a JSON array of typed query objects. Each object supports `kind`, `resourceGroup`,
-`healthModel`, and the kind-specific `entityName`, `signalName`, `healthFilter`, `timestamp`,
-`startTime`, `endTime`, and `top` fields. `top` is the Azure API page size, not a total limit.
-`healthFilter` (`unhealthy`, `degraded`, `unknown`, `notHealthy`) is mutually exclusive with
-`entityName`. `notHealthy` is the closed set `unhealthy` + `degraded` + `unknown`; because the Azure
-health state is an extensible enum, any other state (such as `deleted`, or a state Azure adds later)
-is excluded — omit the filter to receive every entity. On `entityList` the filter keeps only the
-entities in that health state from the page already fetched, so `page.returnedCount` reports the
-filtered count while `page.complete` and `continuationToken` stay the API's own answer for the
-unfiltered page. A page whose entities all fail the filter therefore reports `returnedCount` `0`
-with the API's own `complete`. On the per-entity kinds it runs the query against every entity
-matching that state instead of one named entity. It is rejected on `entityGet`, which returns a
-single named entity — use `entityList` to filter by health state.
-Results are compact by default. The optional closed `fields` array adds only these groups:
+`--code` is JavaScript, and the option description is the TypeScript declaration of the sandbox globals
+rather than prose. The script runs against a `client` object that mirrors `@azure/arm-cloudhealth`'s
+`CloudHealthClient` — `client.healthModels`, `client.entities`, `client.relationships` and
+`client.signalDefinitions`, with the SDK's own method names and positional argument order — backed by
+the same `Azure.ResourceManager.CloudHealth` calls the other health-model tools use. Use it when an
+answer needs chaining, filtering, aggregation, or a loop: intermediate pages stay in the sandbox, so a
+scan of thousands of entities can return a single count.
 
-| Field group | Applicable query kinds | Approximate addition | Band |
+The sandbox has no network, no filesystem, no module loading, and no route to a .NET type or to the
+credential the client closes over, so a script can reach nothing the client does not expose. Execution
+is bounded by a wall-clock timeout, a statement ceiling and a recursion limit; exceeding one is reported
+as an error rather than a partial result, and an oversized result is truncated with its estimated size.
+Only what the script returns, plus what it wrote to `console`, comes back.
+
+Writes (`createOrUpdate`, `delete`, `addDataAnnotation`, `ingestHealthReport`) take effect immediately.
+Unlike `graphedit` there is no `whatIf` preview and no affected-count guard.
+
+```javascript
+const page = await client.entities.listByHealthModel('rg', 'model');
+const bad = page.value.filter(e => e.properties.healthState !== 'Healthy');
+console.log('scanned', page.value.length);
+return { unhealthy: bad.length, names: bad.map(e => e.name) };
+```
+
+`--queries` is a JSON array of typed query objects, and the option description is the JSON Schema for
+that array rather than prose. Each `kind` is its own closed branch listing exactly the inputs it accepts,
+so a field belonging to another kind is rejected by name instead of being silently ignored. `kind` may
+appear at any position in the object. A query that cannot be read fails on its own result slot with
+`success` `false` and keeps its input position; the rest of the batch still runs. Only a batch-level
+problem — not a JSON array, an empty array, or unparseable JSON — fails the call with HTTP 400.
+
+| Kind | Required beyond scope | Accepts |
+|---|---|---|
+| `entityList` | — | `asOf`, `whereHealth`, `page.cursor`, `select` |
+| `entityGet` | `entity` | `select` |
+| `entityHistory` | `target` | `window`, `page`, `select` |
+| `signalHistory` | `target`, `signal` | `window`, `page`, `select` |
+| `signalRecommendations` | `target` | `select` |
+| `dataAnnotations` | `target` | `window`, `page`, `select` |
+| `relationshipList` | — | `asOf`, `page.cursor`, `select` |
+| `signalDefinitionList` | — | `asOf`, `page.cursor`, `select` |
+
+Every query carries `kind`, `resourceGroup`, `healthModel`, and an optional echo-only `label`.
+
+`target` names exactly one of `entity` (one named entity) or `whereHealth` (every entity currently in
+that health state, resolved from one shared entity list). `whereHealth` accepts `unhealthy`, `degraded`,
+`unknown`, or `notHealthy` — the closed set `unhealthy` + `degraded` + `unknown`; because the Azure health
+state is an extensible enum, any other state such as `deleted` is excluded. On `entityList` the same
+filter is spelled `whereHealth` at the top level and keeps only matching entities from the page already
+fetched, so `page.returnedCount` reports the filtered count while `page.complete` and `page.cursor` stay
+the API's own answer for the unfiltered page.
+
+`window` is `{ "from": ..., "to": ... }`. `from` must be within 30 days of the **current** time; the
+service anchors that window to now, not to `to`, so a `to` in the past does not extend the reach. Sending
+a wider range fails with HTTP 400 `InvalidStartAt`.
+
+`page` is `{ "size": ..., "cursor": ... }` on the history and annotation kinds, and `{ "cursor": ... }` on
+the list kinds, whose Azure operations take no page size. `size` is the Azure page size, not a total
+limit. `cursor` is the opaque value echoed back from a previous response's `page.cursor`; it resumes a
+page and cannot be combined with `window`. What a cursor resumes is fixed by the query: the collection
+itself for a list kind, that entity's own page when `target.entity` is set, and the shared discovery page
+when `target.whereHealth` is used.
+
+An unrecognized `signal` is **not** an error: `signalHistory` returns success with an empty history,
+indistinguishable from a real signal with no data in the window. `signal` is scoped to the target entity —
+read it from that entity's own signal groups with `select: ["signals"]` on `entityGet` or `entityList`.
+Most signals appear at `signalGroups.<group>.signals[].name`; the Azure Resource Health baseline signal is
+instead at `signalGroups.azureResource.resourceHealth.signalName`, and the `dependencies` group carries no
+signals at all. A name valid on one entity returns an empty history on another. Names are human-readable
+for hand-authored inline signals (for example `cpu-percentage`) and GUIDs for discovery-created ones. Each
+signal instance also carries `signalDefinitionName`, the explicit link to the `signalDefinitionList` entry
+holding its thresholds; on discovery-created entities the instance name and definition name coincide, but
+the definition list is a model-wide catalog rather than a per-entity name source. A signal created by an
+ingested health report appears in neither listing and is addressable only by the name the reporter used.
+
+`relationshipList` returns the parent/child edges that define the dependency graph: an entity's
+`signalGroups.dependencies` gives the aggregation rule (for example `WorstOf`) and these edges give the
+children it aggregates, which is what makes a rollup explainable. `signalDefinitionList` returns the
+model's `signaldefinitions` child resources with their `evaluationRules` thresholds; it is legitimately
+empty for a model whose signals are declared inline under an entity's `signalGroups`.
+
+Errors lead with the service's own message plus the HTTP status and service error code; the raw response
+headers and body echo the SDK appends are dropped.
+
+Results are compact by default. `select` is per-kind, so a group that does nothing for a kind cannot be
+requested on it:
+
+| `select` value | Kinds | Approximate addition | Band |
 |---|---|---:|---|
 | `identity` | `entityList`, `entityGet` | 233–247 B/item | medium |
 | `audit` | `entityList`, `entityGet` | 75–222 B/item | medium |
@@ -3142,23 +3226,86 @@ Results are compact by default. The optional closed `fields` array adds only the
 | `context` | `signalHistory` | ~66 B/item | small |
 | `details` | `dataAnnotations` | ~77 B/item; may be kilobytes | large |
 | `configurations` | `signalRecommendations` | unmeasured; collection-scaled | large |
-| `full` | `entityList`, `entityGet` | exact SDK JSON; +~638 B/item | large |
-| `full` | `entityHistory` | exact SDK JSON; wrapper metadata <100 B/node | small |
-| `full` | `signalHistory` | exact SDK JSON; context +~66 B/item plus wrapper metadata | small per item |
-| `full` | `dataAnnotations` | exact SDK JSON; details +~77 B/item typically, potentially >300 B | small typically; potentially large |
-| `full` | `signalRecommendations` | exact SDK JSON; configurations unmeasured/collection-scaled | large |
+| `full` | every kind | exact SDK JSON; entity payload +~638 B/item, history wrapper <100 B/node, signal-definition kind-specific fields such as `metricName` or a KQL `queryText` | varies |
 
-Bands are small (<100 B/item), medium (100–300 B/item), and large (>300 B/item or
-collection-scaled). Costs were measured on one recorded fixture and one real session; real models
-vary — treat as order-of-magnitude. Item count can dominate bytes.
+Bands are small (<100 B/item), medium (100–300 B/item), and large (>300 B/item or collection-scaled).
+Costs were measured on one recorded fixture and one real session; real models vary — treat as
+order-of-magnitude. Item count can dominate bytes.
 
 Each call returns one Azure API page. Every successful pageable query or entity node includes
-`page.complete` and `page.returnedCount`. An incomplete entity list or health-filter discovery page
-also includes the exact `continuationToken`; reissue the same query with that token. An incomplete
-`entityHistory`, `signalHistory`, or `dataAnnotations` entity node includes its exact `nextMarker`;
-resume with a concrete `entityName` and that marker, without `startTime` or `endTime`. Continue until
-every relevant `page.complete` is `true`. These tokens are caller-owned API values; no MCP total,
-cursor cache, or automatic continuation is implied.
+`page.complete` and `page.returnedCount`, and an incomplete page also includes the exact `page.cursor`;
+reissue the same query with that cursor. Continue until every relevant `page.complete` is `true`. These
+cursors are caller-owned API values; no MCP total, cursor cache, or automatic continuation is implied.
+
+`graphedit` is the write-side sibling of `query` and is **experimental**. `--changes` is a JSON array of
+typed change objects, and, as with `--queries`, the option description is the JSON Schema for that array.
+Each `kind` is its own closed branch; an element that cannot be read fails on its own result slot with
+`success` `false` and keeps its input position, and results are correlated by a zero-based `changeIndex`.
+
+| Kind | Required beyond scope | Accepts |
+|---|---|---|
+| `create` | `name`, `resource` | — |
+| `patch` | `select`, `patch` | `allowEmptyMatch` |
+| `rename` | `select`, `newName` | `allowEmptyMatch` |
+| `delete` | `select` | `allowEmptyMatch` |
+
+Every element carries `kind`, `resourceGroup`, `healthModel`, and an optional echo-only `label`.
+
+`select` names exactly one of `entity`, `relationship`, or `signalDefinition` and matches **exactly** — no
+globs, no regexes — against a fully enumerated snapshot of that collection rather than one page. A
+selector that matches nothing fails its element unless `allowEmptyMatch` is `true`.
+
+`patch` is an RFC 7386 merge patch: a `null` value removes the property, a nested object merges, and an
+array replaces wholesale. `create` is a merge too, not a full-body replace: a property you omit is
+don't-care and is left as it is, and an explicit `null` removes it. `provisioningState`, `healthState`,
+`discoveredBy`, `systemData`, `id`, `name` and `type` are server-owned **only at the body root and directly
+under `properties`** — naming one there rejects the element, and none of them ever appear in a diff. Any
+deeper, for example `properties.tags.name`, they are ordinary caller data that is written and diffed.
+Because a relationship's `parentEntityName` and `childEntityName` are create-time immutable, repointing an
+edge is reported as a `replace` (delete then create) rather than an `update`. `rename` likewise expands
+into a create under the new name, a repoint of every relationship that referenced the old name, and a
+delete of the old name. Deleting an entity that is still an endpoint of a relationship is rejected by
+name, never cascaded.
+
+Each result reports its resolved `targets`, each with an `action` of `create`, `update`, `replace`,
+`delete`, `noOp` or `skipped` and a per-property `changes[]` of `{path, before, after}`. Writes are
+ordered signal definitions, then entities, then relationships, with deletes in the reverse order; a target
+whose dependency failed is reported `skipped` rather than attempted. A later element that targets a
+resource an earlier element failed to write is `skipped` too, naming that earlier element: it is never
+written from a body computed off a state the service may never have held. "Earlier" and "later" mean
+**execution** order, which is that write order — not the order the elements were listed in, so a `delete`
+listed first can be skipped naming a `create` listed after it. A skip reason distinguishes a blocker that
+issued a write and failed ("failed to write") from one that was itself skipped and never reached the
+service ("was not attempted"), so a chain of skips never sends you looking for a call that never happened.
+
+A write is never blocked by an earlier element's successful write: the change set was planned by folding
+each element over the last, so a later `replace` carries the earlier write's content in its own body — which
+is what lets a `rename` repoint a relationship an earlier element just patched. Two elements that simply
+write the same resource both run, the later superseding the earlier as asked.
+
+A failed `replace` is the one case where a change set can leave the graph with less than it started with,
+because the delete has already happened. The tool then PUTs the resource's **pre-batch** body back — the
+body the batch started from, not the working body the planner folded — and the element's `error` says the
+previous body "was restored, so the target is unchanged". If that restore PUT also fails, the `error` is
+prefixed **`RESOURCE LOST:`** and names the resource: it no longer exists on the service and its previous
+body survives only in that response, so capture it before discarding the output. A `rename` repoints edges
+as replaces, so a failed rename can surface both of those outcomes too.
+
+Restoring is the one thing an earlier committed write does block. When a `replace` fails on a resource an
+earlier element already wrote, putting the pre-batch body back would discard that write, so the restore is
+skipped: the `error` is prefixed **`RESTORE SKIPPED:`**, the resource is left in the state the failed
+element left it (deleted), and every earlier element that wrote it gains a `supersededBy` on its target
+saying its write is no longer on that resource. `supersededBy` is reported the same way, and on every such
+element, when a `delete` removes a resource earlier elements wrote — the delete is what you asked for and
+still happens, but a `success: true` that no longer stands is never left standing silently.
+
+`--mode` defaults to `whatIf`, which computes the whole change set and writes **nothing**. `--mode apply`
+additionally **requires** `--expect {"affectedCount": N}` where `N` is the `affectedCount` the matching
+what-if reported (the number of targets whose action is not `noOp`); if it is absent or differs, the whole
+batch is rejected with zero writes. The optional `--expect {"snapshot": "..."}` token, also echoed from the
+what-if, rejects the batch if any matched target drifted in between. What the what-if predicts holds only
+while every write succeeds: the first failure turns the targets after it into skipped ones, so the echoed
+`affectedCount` is an upper bound on what an apply actually writes.
 
 #### Metrics
 

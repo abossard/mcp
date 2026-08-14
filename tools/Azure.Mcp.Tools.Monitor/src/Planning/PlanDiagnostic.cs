@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using Azure.Mcp.Tools.Monitor.Models.HealthModels;
 
 namespace Azure.Mcp.Tools.Monitor.Planning;
 
@@ -10,4 +9,4 @@ namespace Azure.Mcp.Tools.Monitor.Planning;
 /// each diagnostic into a whole-query error result so every input query still yields exactly one result,
 /// correlated by its zero-based <see cref="QueryIndex"/>.
 /// </summary>
-internal sealed record PlanDiagnostic(int QueryIndex, HealthModelQueryKind Kind, string Error);
+internal sealed record PlanDiagnostic(int QueryIndex, string Kind, string Error);

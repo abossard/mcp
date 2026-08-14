@@ -21,6 +21,12 @@ internal interface IHealthModelCallRunner
     Task<HealthModelEntityListPage> ListEntitiesAsync(
         PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, CancellationToken cancellationToken);
 
+    Task<HealthModelListPage<HealthModelRelationshipData>> ListRelationshipsAsync(
+        PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, CancellationToken cancellationToken);
+
+    Task<HealthModelListPage<HealthModelSignalDefinitionData>> ListSignalDefinitionsAsync(
+        PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, CancellationToken cancellationToken);
+
     Task<HealthModelEntityData> GetEntityAsync(
         PlanScope scope, string entityName, CancellationToken cancellationToken);
 

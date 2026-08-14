@@ -7,7 +7,10 @@ using Azure.Mcp.Core.Services.Azure;
 using Azure.Mcp.Core.Services.Azure.Subscription;
 using Azure.Mcp.Core.Services.Azure.Tenant;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Changes;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 using Azure.Mcp.Tools.Monitor.Planning;
+using Azure.Mcp.Tools.Monitor.Sandbox;
 using Azure.ResourceManager.CloudHealth;
 using Azure.ResourceManager.Models;
 using Microsoft.Extensions.Logging;
@@ -145,5 +148,42 @@ public class MonitorHealthModelService(ISubscriptionService subscriptionService,
 
         var plan = HealthModelQueryPlanner.Plan(queries);
         return await HealthModelQueryExecutor.ExecuteAsync(plan, runner, cancellationToken);
+    }
+
+    public async Task<HealthModelScriptResult> ExecuteHealthModelScript(
+        string subscription,
+        string code,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredParameters((nameof(subscription), subscription), (nameof(code), code));
+
+        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
+        var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
+
+        return await Task.Run(
+            () => HealthModelScriptRuntime.Run(code, runner, runner, runner, cancellationToken),
+            cancellationToken);
+    }
+
+    public async Task<HealthModelGraphEditResult> ExecuteHealthModelGraphEdit(
+        string subscription,
+        IReadOnlyList<HealthModelChange> changes,
+        HealthModelChangeMode mode,
+        HealthModelChangeExpectation? expect,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredParameters((nameof(subscription), subscription));
+        ArgumentNullException.ThrowIfNull(changes);
+
+        var subscriptionResource = await _subscriptionService.GetSubscription(subscription, tenant, retryPolicy, cancellationToken);
+        var armClient = await CreateArmClientAsync(tenant, retryPolicy, cancellationToken: cancellationToken);
+        var runner = new ArmHealthModelCallRunner(subscriptionResource, armClient);
+
+        return await new HealthModelGraphEditExecutor(runner).ExecuteAsync(changes, mode, expect, cancellationToken);
     }
 }

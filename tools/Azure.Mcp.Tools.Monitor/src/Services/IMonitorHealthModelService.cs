@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Changes;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 using Microsoft.Mcp.Core.Options;
 
 namespace Azure.Mcp.Tools.Monitor.Services;
@@ -58,6 +60,38 @@ public interface IMonitorHealthModelService
     Task<IReadOnlyList<HealthModelQueryResult>> ExecuteHealthModelQueries(
         string subscription,
         IReadOnlyList<HealthModelQuery> queries,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executes a batch of typed health-model graph changes. The batch is planned against a fully enumerated
+    /// snapshot of every targeted model and each input element yields exactly one result, correlated by its
+    /// zero-based input position (changeIndex) and returned in input order. In
+    /// <see cref="HealthModelChangeMode.WhatIf"/> the change set is computed and nothing is written; in
+    /// <see cref="HealthModelChangeMode.Apply"/> the batch is rejected without any write unless
+    /// <paramref name="expect"/> declares the affected count the plan computed.
+    /// </summary>
+    /// <param name="subscription">Subscription ID or name.</param>
+    /// <param name="changes">The batch of changes to plan and, when applying, write.</param>
+    /// <param name="mode">Whether to only compute the change set or also write it.</param>
+    /// <param name="expect">The caller's guard; required to carry an affected count when applying.</param>
+    /// <param name="tenant">Optional tenant ID.</param>
+    /// <param name="retryPolicy">Optional retry policy.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>The batch envelope, carrying one result per input element in input order.</returns>
+    Task<HealthModelScriptResult> ExecuteHealthModelScript(
+        string subscription,
+        string code,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default);
+
+    Task<HealthModelGraphEditResult> ExecuteHealthModelGraphEdit(
+        string subscription,
+        IReadOnlyList<HealthModelChange> changes,
+        HealthModelChangeMode mode,
+        HealthModelChangeExpectation? expect,
         string? tenant = null,
         RetryPolicyOptions? retryPolicy = null,
         CancellationToken cancellationToken = default);

@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Text.Json;
+using Azure.Identity;
 using ToolSelection.Models;
 using ToolSelection.Services;
 using ToolSelection.VectorDb;
@@ -206,23 +207,24 @@ class Program
 
             var apiKey = Environment.GetEnvironmentVariable("TEXT_EMBEDDING_API_KEY");
 
-            if (string.IsNullOrEmpty(apiKey))
+            EmbeddingService embeddingService;
+
+            if (!string.IsNullOrEmpty(apiKey))
             {
-                string errorMessage;
-
-                if (isCiMode)
-                {
-                    errorMessage = "TEXT_EMBEDDING_API_KEY not available";
-                }
-                else
-                {
-                    errorMessage = "TEXT_EMBEDDING_API_KEY environment variable not set. Please set it to an Azure OpenAI API key.";
-                }
-
-                throw new ArgumentException(errorMessage);
+                embeddingService = new EmbeddingService(HttpClient, endpoint, apiKey);
             }
-
-            var embeddingService = new EmbeddingService(HttpClient, endpoint, apiKey!);
+            else if (isCiMode)
+            {
+                // Preserve CI graceful-skip behavior when no API key is available.
+                throw new ArgumentException("TEXT_EMBEDDING_API_KEY not available");
+            }
+            else
+            {
+                // No API key: authenticate to the embedding endpoint with Entra ID (DefaultAzureCredential).
+                // Works with Azure OpenAI / Azure AI Services endpoints that have key auth disabled.
+                Console.WriteLine("🔐 TEXT_EMBEDDING_API_KEY not set; authenticating with DefaultAzureCredential (Entra ID).");
+                embeddingService = new EmbeddingService(HttpClient, endpoint, apiKey: null, credential: new DefaultAzureCredential());
+            }
 
             // Load tools - use custom JSON file if specified, otherwise try dynamic loading with fallback
             ListToolsResult? listToolsResult = null;

@@ -403,6 +403,8 @@
         "monitor_healthmodels_list",
         "monitor_healthmodels_get",
         "monitor_healthmodels_query",
+        "monitor_healthmodels_graphedit",
+        "monitor_healthmodels_sdk",
         "monitor_metrics_definitions",
         "monitor_metrics_query",
         "monitor_resource_log_query",

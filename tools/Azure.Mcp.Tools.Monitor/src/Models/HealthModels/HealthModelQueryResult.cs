@@ -45,7 +45,21 @@ public sealed class HealthModelQueryResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<HealthModelEntityResult>? Entities { get; set; }
 
-    /// <summary>Entity-list or health-filter discovery page metadata.</summary>
+    /// <summary>
+    /// The relationship edges returned by a relationship-list query. Model-scope collections are not
+    /// entity-scoped, so they surface as their own collection rather than being forced into
+    /// <see cref="Entities"/>.
+    /// </summary>
+    [JsonPropertyName("relationships")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<HealthModelCollectionItemResult>? Relationships { get; set; }
+
+    /// <summary>The signal definitions returned by a signal-definition-list query.</summary>
+    [JsonPropertyName("signalDefinitions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<HealthModelCollectionItemResult>? SignalDefinitions { get; set; }
+
+    /// <summary>Entity-list, model-scope list, or health-filter discovery page metadata.</summary>
     [JsonPropertyName("page")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public HealthModelQueryPage? Page { get; set; }

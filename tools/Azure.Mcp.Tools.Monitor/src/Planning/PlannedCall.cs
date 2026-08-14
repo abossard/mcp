@@ -14,18 +14,27 @@ internal sealed record PlannedCall(
     PlanScope Scope,
     string? EntityName,
     string? SignalName,
-    DateTimeOffset? StartTime,
-    DateTimeOffset? EndTime,
-    int? Top,
-    DateTimeOffset? Timestamp,
+    DateTimeOffset? From,
+    DateTimeOffset? To,
+    int? Size,
+    DateTimeOffset? AsOf,
     HealthModelHealthFilter? HealthFilter,
-    string? NextMarker,
-    string? ContinuationToken,
+    string? Cursor,
     IReadOnlyList<int> QueryIndexes)
 {
     /// <summary>
     /// True when this is a per-entity call whose target entity is not fixed but resolved at execution
-    /// time from the shared entity list (filtered by <see cref="HealthFilter"/>).
+    /// time from the shared entity list (filtered by <see cref="HealthFilter"/>). Model-scope list calls
+    /// have no entity target at all and are never deferred.
     /// </summary>
-    internal bool IsDeferredPerEntity => EntityName is null && Kind != HealthModelCallKind.ListEntities;
+    /// <summary>
+    /// The cursor that resumes this one entity's own page. A deferred call's cursor belongs to the shared
+    /// discovery list instead, so it must not be forwarded to the per-entity request.
+    /// </summary>
+    internal string? EntityCursor => IsDeferredPerEntity ? null : Cursor;
+
+    internal bool IsDeferredPerEntity =>
+        EntityName is null &&
+        Kind != HealthModelCallKind.ListEntities &&
+        !HealthModelCallKinds.IsModelScopeList(Kind);
 }

@@ -20,7 +20,7 @@ internal static class HealthModelQueryExecutor
         foreach (var diagnostic in plan.Diagnostics)
         {
             results[diagnostic.QueryIndex] = QueryFailure(
-                diagnostic.QueryIndex, ToCamel(diagnostic.Kind.ToString()), diagnostic.Error);
+                diagnostic.QueryIndex, diagnostic.Kind, diagnostic.Error);
         }
 
         foreach (var group in plan.Groups)
@@ -53,9 +53,15 @@ internal static class HealthModelQueryExecutor
             return;
         }
 
+        if (HealthModelCallKinds.IsModelScopeList(call.Kind))
+        {
+            await ExecuteModelScopeListAsync(call, runner, results, resultShapes, kind, cancellationToken);
+            return;
+        }
+
         if (call.IsDeferredPerEntity)
         {
-            var gate = GetGate(gates, call.ContinuationToken);
+            var gate = GetGate(gates, call.Cursor);
             var discoveryPage = await ResolveGateAsync(call, runner, gate, cancellationToken);
             if (gate.Failed)
             {
@@ -94,8 +100,8 @@ internal static class HealthModelQueryExecutor
         try
         {
             page = await runner.ListEntitiesAsync(
-                call.Scope, call.Timestamp, call.ContinuationToken, cancellationToken);
-            HealthModelPaginator.EnsureMarkerAdvanced(call.ContinuationToken, page.ContinuationToken);
+                call.Scope, call.AsOf, call.Cursor, cancellationToken);
+            HealthModelPaginator.EnsureMarkerAdvanced(call.Cursor, page.ContinuationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -103,17 +109,17 @@ internal static class HealthModelQueryExecutor
         }
         catch (Exception ex)
         {
-            if (call.Timestamp is null)
+            if (call.AsOf is null)
             {
-                GetGate(gates, call.ContinuationToken).SetFailure(ex.Message);
+                GetGate(gates, call.Cursor).SetFailure(HealthModelError.Describe(ex));
             }
-            AssignAll(results, call.QueryIndexes, index => QueryFailure(index, kind, ex.Message));
+            AssignAll(results, call.QueryIndexes, index => QueryFailure(index, kind, HealthModelError.Describe(ex)));
             return;
         }
 
-        if (call.Timestamp is null)
+        if (call.AsOf is null)
         {
-            GetGate(gates, call.ContinuationToken).SetSuccess(page);
+            GetGate(gates, call.Cursor).SetSuccess(page);
         }
 
         var nodes = page.Items
@@ -140,7 +146,94 @@ internal static class HealthModelQueryExecutor
                 new HealthModelQueryPage(
                     Complete: string.IsNullOrEmpty(page.ContinuationToken),
                     ReturnedCount: selected.Count,
-                    ContinuationToken: EmptyToNull(page.ContinuationToken)));
+                    Cursor: EmptyToNull(page.ContinuationToken)));
+        });
+    }
+
+    /// <summary>
+    /// Runs one page of a model-scope collection (relationships, signal definitions). These calls have no
+    /// entity target and no per-item failure mode, so a failure fails the whole query the same way a failed
+    /// entity list does.
+    /// </summary>
+    private static async Task ExecuteModelScopeListAsync(
+        PlannedCall call,
+        IHealthModelCallRunner runner,
+        HealthModelQueryResult[] results,
+        IReadOnlyList<HealthModelResultShape> resultShapes,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<HealthModelCollectionItemResult> items;
+        string? continuationToken;
+
+        try
+        {
+            switch (call.Kind)
+            {
+                case HealthModelCallKind.ListRelationships:
+                    {
+                        var page = await runner.ListRelationshipsAsync(
+                            call.Scope, call.AsOf, call.Cursor, cancellationToken);
+                        HealthModelPaginator.EnsureMarkerAdvanced(call.Cursor, page.ContinuationToken);
+                        items = [.. page.Items.Select(item => new HealthModelCollectionItemResult
+                        {
+                            Name = item.Name,
+                            Relationship = item,
+                        })];
+                        continuationToken = page.ContinuationToken;
+                        break;
+                    }
+
+                case HealthModelCallKind.ListSignalDefinitions:
+                    {
+                        var page = await runner.ListSignalDefinitionsAsync(
+                            call.Scope, call.AsOf, call.Cursor, cancellationToken);
+                        HealthModelPaginator.EnsureMarkerAdvanced(call.Cursor, page.ContinuationToken);
+                        items = [.. page.Items.Select(item => new HealthModelCollectionItemResult
+                        {
+                            Name = item.Name,
+                            SignalDefinition = item,
+                        })];
+                        continuationToken = page.ContinuationToken;
+                        break;
+                    }
+
+                // A model-scope kind added to HealthModelCallKinds.IsModelScopeList but not handled here must
+                // fail loudly rather than silently borrow another collection's reader and result slot.
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(call), call.Kind, "Unhandled model-scope collection kind.");
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AssignAll(results, call.QueryIndexes, index => QueryFailure(index, kind, HealthModelError.Describe(ex)));
+            return;
+        }
+
+        var queryPage = new HealthModelQueryPage(
+            Complete: string.IsNullOrEmpty(continuationToken),
+            ReturnedCount: items.Count,
+            Cursor: EmptyToNull(continuationToken));
+
+        AssignAll(results, call.QueryIndexes, index =>
+        {
+            var shaped = ShapeItems(items, resultShapes[index]);
+            return new HealthModelQueryResult
+            {
+                QueryIndex = index,
+                Kind = kind,
+                Success = true,
+                // Each item already carries exactly one payload, so the collection it belongs on is read from
+                // the items rather than re-derived from the call kind.
+                Relationships = shaped.Any(item => item.Relationship is not null) ? shaped : null,
+                SignalDefinitions = shaped.Any(item => item.SignalDefinition is not null) ? shaped : null,
+                Page = queryPage,
+            };
         });
     }
 
@@ -158,8 +251,8 @@ internal static class HealthModelQueryExecutor
         try
         {
             var page = await runner.ListEntitiesAsync(
-                call.Scope, timestamp: null, call.ContinuationToken, cancellationToken);
-            HealthModelPaginator.EnsureMarkerAdvanced(call.ContinuationToken, page.ContinuationToken);
+                call.Scope, timestamp: null, call.Cursor, cancellationToken);
+            HealthModelPaginator.EnsureMarkerAdvanced(call.Cursor, page.ContinuationToken);
             gate.SetSuccess(page);
             return page;
         }
@@ -169,7 +262,7 @@ internal static class HealthModelQueryExecutor
         }
         catch (Exception ex)
         {
-            gate.SetFailure(ex.Message);
+            gate.SetFailure(HealthModelError.Describe(ex));
             return null;
         }
     }
@@ -197,7 +290,7 @@ internal static class HealthModelQueryExecutor
                 {
                     EntityName = entityName,
                     Success = false,
-                    Error = ex.Message,
+                    Error = HealthModelError.Describe(ex),
                     SignalName = call.Kind == HealthModelCallKind.GetSignalHistory ? call.SignalName : null,
                 });
             }
@@ -224,9 +317,9 @@ internal static class HealthModelQueryExecutor
             case HealthModelCallKind.GetHistory:
                 {
                     var payload = await runner.GetHistoryAsync(
-                        call.Scope, entityName, call.StartTime, call.EndTime, call.Top,
-                        call.NextMarker, cancellationToken);
-                    HealthModelPaginator.EnsureMarkerAdvanced(call.NextMarker, payload.NextMarker);
+                        call.Scope, entityName, call.From, call.To, call.Size,
+                        call.EntityCursor, cancellationToken);
+                    HealthModelPaginator.EnsureMarkerAdvanced(call.EntityCursor, payload.NextMarker);
                     return new HealthModelEntityResult
                     {
                         EntityName = entityName,
@@ -239,9 +332,9 @@ internal static class HealthModelQueryExecutor
             case HealthModelCallKind.GetSignalHistory:
                 {
                     var payload = await runner.GetSignalHistoryAsync(
-                        call.Scope, entityName, call.SignalName!, call.StartTime, call.EndTime, call.Top,
-                        call.NextMarker, cancellationToken);
-                    HealthModelPaginator.EnsureMarkerAdvanced(call.NextMarker, payload.NextMarker);
+                        call.Scope, entityName, call.SignalName!, call.From, call.To, call.Size,
+                        call.EntityCursor, cancellationToken);
+                    HealthModelPaginator.EnsureMarkerAdvanced(call.EntityCursor, payload.NextMarker);
                     return new HealthModelEntityResult
                     {
                         EntityName = entityName,
@@ -264,9 +357,9 @@ internal static class HealthModelQueryExecutor
             case HealthModelCallKind.GetDataAnnotations:
                 {
                     var payload = await runner.GetDataAnnotationsAsync(
-                        call.Scope, entityName, call.StartTime, call.EndTime, call.Top,
-                        call.NextMarker, cancellationToken);
-                    HealthModelPaginator.EnsureMarkerAdvanced(call.NextMarker, payload.NextMarker);
+                        call.Scope, entityName, call.From, call.To, call.Size,
+                        call.EntityCursor, cancellationToken);
+                    HealthModelPaginator.EnsureMarkerAdvanced(call.EntityCursor, payload.NextMarker);
                     return new HealthModelEntityResult
                     {
                         EntityName = entityName,
@@ -285,13 +378,13 @@ internal static class HealthModelQueryExecutor
         new(
             Complete: string.IsNullOrEmpty(page.ContinuationToken),
             ReturnedCount: page.Items.Count,
-            ContinuationToken: EmptyToNull(page.ContinuationToken));
+            Cursor: EmptyToNull(page.ContinuationToken));
 
     private static HealthModelEntityPage EntityPage(int returnedCount, string? nextMarker) =>
         new(
             Complete: string.IsNullOrEmpty(nextMarker),
             ReturnedCount: returnedCount,
-            NextMarker: EmptyToNull(nextMarker));
+            Cursor: EmptyToNull(nextMarker));
 
     private static string? EmptyToNull(string? value) =>
         string.IsNullOrEmpty(value) ? null : value;
@@ -341,6 +434,17 @@ internal static class HealthModelQueryExecutor
             Shape = shape,
         }).ToList();
 
+    private static IReadOnlyList<HealthModelCollectionItemResult> ShapeItems(
+        IReadOnlyList<HealthModelCollectionItemResult> items,
+        HealthModelResultShape shape) =>
+        items.Select(item => new HealthModelCollectionItemResult
+        {
+            Name = item.Name,
+            Relationship = item.Relationship,
+            SignalDefinition = item.SignalDefinition,
+            Shape = shape,
+        }).ToList();
+
     private static void AssignAll(
         HealthModelQueryResult[] results,
         IReadOnlyList<int> queryIndexes,
@@ -371,9 +475,9 @@ internal static class HealthModelQueryExecutor
 
     private static EntityListGate GetGate(
         Dictionary<EntityListPageKey, EntityListGate> gates,
-        string? continuationToken)
+        string? cursor)
     {
-        var key = new EntityListPageKey(continuationToken);
+        var key = new EntityListPageKey(cursor);
         if (!gates.TryGetValue(key, out var gate))
         {
             gate = new EntityListGate();
@@ -390,13 +494,13 @@ internal static class HealthModelQueryExecutor
         HealthModelCallKind.GetSignalHistory => "signalHistory",
         HealthModelCallKind.GetSignalRecommendations => "signalRecommendations",
         HealthModelCallKind.GetDataAnnotations => "dataAnnotations",
+        HealthModelCallKind.ListRelationships => "relationshipList",
+        HealthModelCallKind.ListSignalDefinitions => "signalDefinitionList",
         _ => kind.ToString(),
     };
 
-    private static string ToCamel(string name) =>
-        string.IsNullOrEmpty(name) ? name : char.ToLowerInvariant(name[0]) + name[1..];
 
-    private readonly record struct EntityListPageKey(string? ContinuationToken);
+    private readonly record struct EntityListPageKey(string? Cursor);
 
     private sealed class EntityListGate
     {

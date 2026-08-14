@@ -789,12 +789,20 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | Tool Name | Test Prompt |
 |:----------|:----------|
 | monitor_activitylog_list | List the activity logs of the last month for <resource_name> |
+| monitor_healthmodels_graphedit | Preview renaming entity <entity_name> to <new_entity_name> in health model <health_model_name> |
+| monitor_healthmodels_graphedit | Set the display name of every entity tagged tier=web in health model <health_model_name> |
+| monitor_healthmodels_graphedit | Apply the change set I just previewed for health model <health_model_name>, it affected 3 targets |
 | monitor_healthmodels_get | Show me the health model <health_model_name> in resource group <resource_group> |
 | monitor_healthmodels_list | List the Azure Monitor health models in my subscription |
 | monitor_healthmodels_list | What health models are in resource group <resource_group>? |
 | monitor_healthmodels_query | Get the signal history for all unhealthy entities in health model <health_model_name> |
 | monitor_healthmodels_query | Batch query health model <health_model_name>: list its entities and their health history |
-| monitor_healthmodels_query | Continue the next API page for an entity history query in health model <health_model_name> |
+| monitor_healthmodels_query | Continue the next page of an entity history query in health model <health_model_name> |
+| monitor_healthmodels_query | Show the dependency graph of health model <health_model_name>: which entities roll up into which |
+| monitor_healthmodels_query | What signals are defined on health model <health_model_name> and what are their unhealthy thresholds? |
+| monitor_healthmodels_sdk | Write a script that counts the unhealthy entities in health model <health_model_name> |
+| monitor_healthmodels_sdk | Use JavaScript to find which entities in health model <health_model_name> have been degraded the longest |
+| monitor_healthmodels_sdk | Script a walk of the dependency graph in health model <health_model_name> and return only the root causes |
 | monitor_instrumentation_get-learning-resource | Get the onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Show me the content of the Azure Monitor onboarding learning resource at path <resource_path> |
 | monitor_instrumentation_get-learning-resource | Get the content of the Azure Monitor learning resource file at path <resource_path> |

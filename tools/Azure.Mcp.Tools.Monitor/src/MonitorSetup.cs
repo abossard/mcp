@@ -81,6 +81,8 @@ public class MonitorSetup : IAreaSetup
         services.AddSingleton<HealthModelListCommand>();
         services.AddSingleton<HealthModelGetCommand>();
         services.AddSingleton<HealthModelQueryCommand>();
+        services.AddSingleton<HealthModelGraphEditCommand>();
+        services.AddSingleton<HealthModelSdkCommand>();
 
         services.AddSingleton<MetricsQueryCommand>();
         services.AddSingleton<MetricsDefinitionsCommand>();
@@ -147,6 +149,8 @@ public class MonitorSetup : IAreaSetup
         health.AddCommand<HealthModelListCommand>(serviceProvider);
         health.AddCommand<HealthModelGetCommand>(serviceProvider);
         health.AddCommand<HealthModelQueryCommand>(serviceProvider);
+        health.AddCommand<HealthModelGraphEditCommand>(serviceProvider);
+        health.AddCommand<HealthModelSdkCommand>(serviceProvider);
 
         // Create Metrics command group and register commands
         var metrics = new CommandGroup("metrics", "Azure Monitor metrics operations - Commands for querying and analyzing Azure Monitor metrics.");

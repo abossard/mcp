@@ -30,6 +30,7 @@
     <PackageReference Include="Azure.ResourceManager.CloudHealth" />
     <PackageReference Include="Azure.ResourceManager.OperationalInsights" />
     <PackageReference Include="Azure.ResourceManager.Monitor" />
+    <PackageReference Include="Jint" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>

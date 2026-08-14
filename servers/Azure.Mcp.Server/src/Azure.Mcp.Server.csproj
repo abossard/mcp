@@ -32,6 +32,52 @@
     <McpbPlatforms>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</McpbPlatforms>
   </PropertyGroup>
 
+  <!--
+    Jint's CLR interop is reflection-based, and ILLink reports its trim warnings against this project
+    whether or not the paths are reachable. The only consumer is the health-model script sandbox, which
+    never enters them. Two complementary levers, both scoped to the Jint assembly so trim analysis stays
+    warnings-as-errors for first-party code and every other package:
+      1. TrimmerSingleWarn collapses Jint's warnings into one per-assembly summary — IL2104 from ILLink
+         and IL3053 from ILC — each demoted to a warning so it stays visible in build output.
+      2. RequiresUnreferencedCode warnings (IL2026) are not collapsed by TrimmerSingleWarn, so the three
+         entry points involved are suppressed via link-attributes XML. See ILLink.Suppressions.Jint.xml
+         for why each is unreachable. A C# [UnconditionalSuppressMessage] cannot do this: ILLink only
+         honours a suppression declared in the assembly containing the warning origin.
+  -->
+  <Target Name="CollapseJintTrimWarnings" BeforeTargets="PrepareForILLink">
+    <ItemGroup>
+      <ManagedAssemblyToLink Condition="'%(Filename)' == 'Jint'" TrimmerSingleWarn="true" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <_ILLinkSuppressions Include="$(MSBuildThisFileDirectory)ILLink.Suppressions.Jint.xml" />
+  </ItemGroup>
+
+  <!-- ILC does not accept link-attributes, so the interop entry points are stubbed for both linkers. -->
+  <PropertyGroup>
+    <_JintSubstitutions>$(MSBuildThisFileDirectory)ILLink.Substitutions.Jint.xml</_JintSubstitutions>
+    <_ExtraTrimmerArgs>$(_ExtraTrimmerArgs) --substitutions "$(_JintSubstitutions)"</_ExtraTrimmerArgs>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <IlcArg Include="--substitution:$(_JintSubstitutions)" />
+    <!--
+      ILC reports RequiresUnreferencedCode unconditionally and offers no way to scope it to an assembly:
+      it has no link-attributes option, embedded XML may not name another assembly (IL2101), and its
+      substitution parser only accepts feature-switch constants, so the two remaining Jint interop
+      members cannot be stubbed. Demoting IL2026 to a warning for the ILC step alone keeps it an error
+      everywhere that matters: the Roslyn trim analyzer still fails the build on first-party IL2026 in
+      every project (IsAotCompatible turns it on, TreatWarningsAsErrors makes it fatal), and ILLink's own
+      analysis is untouched. Remove this once Jint annotates the two members upstream.
+    -->
+    <IlcArg Include="--nowarnaserr:IL2026" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);IL2104;IL3053</WarningsNotAsErrors>
+  </PropertyGroup>
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>$(CliName)</AssemblyName>

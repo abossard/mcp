@@ -19,6 +19,7 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
     private string? _bingWebTestName;
     private string? _healthModelParentName;
     private string? _healthModelChildName;
+    private string? _healthModelTopologyName;
 
     private static readonly string[] s_validHealthStates =
     [
@@ -108,6 +109,7 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         _bingWebTestName = $"{Settings.ResourceBaseName}-bing-test";
         _healthModelParentName = $"{Settings.ResourceBaseName}-hm-a";
         _healthModelChildName = $"{Settings.ResourceBaseName}-hm-b";
+        _healthModelTopologyName = $"{Settings.ResourceBaseName}-hm-c";
     }
 
     // Every MCP tool returns one text content block carrying the whole serialized CommandResponse, regardless of what
@@ -791,8 +793,8 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         var queries = $$"""
             [
               {"kind":"entityList","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}"},
-              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","entityName":"{{rootEntity}}","top":1},
-              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","healthFilter":"notHealthy","top":1}
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","page":{"size":1},"target":{"entity":"{{rootEntity}}"} },
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","page":{"size":1},"target":{"whereHealth":"notHealthy"} }
             ]
             """;
 
@@ -845,7 +847,7 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         var historyPage = historyNode.AssertProperty("page");
         Assert.Equal(1, historyPage.AssertProperty("returnedCount").GetInt32());
         Assert.False(historyPage.AssertProperty("complete").GetBoolean());
-        var nextMarker = historyPage.AssertProperty("nextMarker").GetString();
+        var nextMarker = historyPage.AssertProperty("cursor").GetString();
         Assert.False(string.IsNullOrEmpty(nextMarker));
 
         // (2) HealthFilter fan-out: the dependent per-entity query produced one envelope node per entity the list
@@ -863,7 +865,7 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
 
         var resumeQueries = $$"""
             [
-              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","entityName":"{{rootEntity}}","top":1,"nextMarker":{{JsonSerializer.Serialize(nextMarker)}}}
+              {"kind":"entityHistory","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","page":{"size":1,"cursor":{{JsonSerializer.Serialize(nextMarker)}} },"target":{"entity":"{{rootEntity}}"} }
             ]
             """;
         var resumeEnvelope = await CallToolAsync(
@@ -887,7 +889,82 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
         var resumedPage = resumedNode.AssertProperty("page");
         Assert.True(resumedPage.AssertProperty("complete").GetBoolean());
         Assert.Equal(1, resumedPage.AssertProperty("returnedCount").GetInt32());
-        Assert.False(resumedPage.TryGetProperty("nextMarker", out _));
+        Assert.False(resumedPage.TryGetProperty("cursor", out _));
+    }
+
+    // Recorded end-to-end proof that a dependency rollup is explainable from one batch: the root's aggregation
+    // rule and the named children it aggregates come back together, and the model's signal definitions expose
+    // real signal names with the thresholds that decide their state. Requires the topology fixture model
+    // (see test-resources.healthmodels.module.bicep: two relationships plus one signaldefinitions child).
+    [Fact]
+    public async Task Should_Query_HealthModel_ReadsDependencyEdgesAndSignalDefinitionThresholds()
+    {
+        var model = _healthModelTopologyName!;
+        var rootEntity = _healthModelTopologyName!;
+        var queries = $$"""
+            [
+              {"kind":"relationshipList","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}"},
+              {"kind":"signalDefinitionList","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}"},
+              {"kind":"entityGet","resourceGroup":"{{Settings.ResourceGroupName}}","healthModel":"{{model}}","entity":"{{rootEntity}}","select":["signals"]}
+            ]
+            """;
+
+        var envelope = await CallToolAsync(
+            "monitor_healthmodels_query",
+            new()
+            {
+                { "subscription", Settings.SubscriptionId },
+                { "queries", queries }
+            },
+            resultProcessor: root => root);
+
+        var result = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
+        var ordered = result.EnumerateArray().ToList();
+        Assert.Equal(new[] { 0, 1, 2 }, ordered.Select(r => r.AssertProperty("queryIndex").GetInt32()));
+
+        // Relationship list: both edges of the fixture, each naming its parent and child entity.
+        var relationships = ordered[0];
+        Assert.True(relationships.AssertProperty("success").GetBoolean());
+        Assert.Equal("relationshipList", relationships.AssertProperty("kind").GetString());
+        var edges = relationships.AssertProperty("relationships").EnumerateArray()
+            .Select(edge => edge.AssertProperty("relationship").AssertProperty("properties"))
+            .Select(properties => (
+                Parent: properties.AssertProperty("parentEntityName").GetString(),
+                Child: properties.AssertProperty("childEntityName").GetString()))
+            .ToList();
+        Assert.Equal(2, edges.Count);
+        Assert.All(edges, edge => Assert.Equal(rootEntity, edge.Parent));
+        Assert.Contains($"{model}-leaf-frontend", edges.Select(edge => edge.Child));
+        Assert.Contains($"{model}-leaf-backend", edges.Select(edge => edge.Child));
+        var edgePage = relationships.AssertProperty("page");
+        Assert.Equal(2, edgePage.AssertProperty("returnedCount").GetInt32());
+        Assert.True(edgePage.AssertProperty("complete").GetBoolean());
+
+        // Signal definition list: a real signal name plus the thresholds that decide its state, so a caller
+        // never has to guess a name that would silently return an empty history.
+        var definitions = ordered[1];
+        Assert.True(definitions.AssertProperty("success").GetBoolean());
+        Assert.Equal("signalDefinitionList", definitions.AssertProperty("kind").GetString());
+        var definition = Assert.Single(
+            definitions.AssertProperty("signalDefinitions").EnumerateArray().ToList(),
+            item => item.AssertProperty("name").GetString() == "storage-availability");
+        var definitionProperties = definition.AssertProperty("signalDefinition").AssertProperty("properties");
+        Assert.Equal("AzureResourceMetric", definitionProperties.AssertProperty("signalKind").GetString());
+        Assert.Equal(
+            95,
+            definitionProperties.AssertProperty("evaluationRules").AssertProperty("unhealthyRule")
+                .AssertProperty("threshold").GetDouble());
+        // Kind-specific detail stays behind the full field group.
+        Assert.False(definitionProperties.TryGetProperty("metricName", out _));
+
+        // The rollup rule and the children it aggregates now come from the same batch.
+        var root = ordered[2];
+        Assert.True(root.AssertProperty("success").GetBoolean());
+        var rootNode = Assert.Single(root.AssertProperty("entities").EnumerateArray().ToList());
+        Assert.Equal(
+            "WorstOf",
+            rootNode.AssertProperty("entity").AssertProperty("properties").AssertProperty("signalGroups")
+                .AssertProperty("dependencies").AssertProperty("aggregationType").GetString());
     }
 
     #endregion

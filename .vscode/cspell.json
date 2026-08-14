@@ -685,6 +685,12 @@
         "sapase",
         "sapasedatabase",
         "sybase",
-        "pitr"
+        "pitr",
+        "Acornima",
+        "Jint",
+        "authenticationsettings",
+        "graphedit",
+        "rollup",
+        "signaldefinitions"
     ]
 }

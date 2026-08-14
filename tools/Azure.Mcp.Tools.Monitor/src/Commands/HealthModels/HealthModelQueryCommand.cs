@@ -6,6 +6,7 @@ using System.Text.Json;
 using Azure.Mcp.Core.Commands.Subscription;
 using Azure.Mcp.Core.Services.Azure.Subscription;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 using Azure.Mcp.Tools.Monitor.Options.HealthModels;
 using Azure.Mcp.Tools.Monitor.Services;
 using Microsoft.Mcp.Core.Commands;
@@ -21,14 +22,20 @@ namespace Azure.Mcp.Tools.Monitor.Commands.HealthModels;
         Run a batch of typed, read-only Azure Monitor Health Model queries (Microsoft.CloudHealth/healthmodels) in a single
         call and get one result per query, returned in input order and correlated by a system-assigned zero-based queryIndex.
         Supported query kinds are entity list (optionally point-in-time), entity get, entity health history, signal history,
-        signal recommendations, and data annotations. Queries can target a specific entity or, using a health filter (e.g.
-        only unhealthy entities), every matching entity resolved from a single shared entity list. The queries are planned into
+        signal recommendations, data annotations, relationship list (the model's parent/child dependency edges) and signal
+        definition list (the model's signal definitions, with their evaluation thresholds). Relationships and signal
+        definitions make a dependency rollup explainable and let a caller read real entity and definition names instead of
+        guessing them. Each kind is its own closed shape carrying exactly the inputs it accepts, so an input that belongs to
+        another kind is rejected by name rather than ignored; the queries option's description is the JSON Schema for the batch.
+        Per-entity kinds target either one named entity or, using a health filter (e.g. only unhealthy entities), every
+        matching entity resolved from a single shared entity list. The queries are planned into
         the fewest Azure Resource Manager calls (grouped by model, deduplicated). Payloads are compact by default and callers
-        can opt into closed typed field groups or full SDK fidelity. Each result carries a uniform list of
+        can opt into per-kind selections or full SDK fidelity. Each result carries a uniform list of
         per-entity nodes (for example
         entity.properties.healthState, history.history[], signalHistory.history[], recommendations.recommendedSignals[],
-        annotations.annotations[]). API-native pagination returns one page per request with page.complete, returnedCount, and
-        the exact continuationToken or nextMarker needed to resume. A whole-query failure sets the query's success to
+        annotations.annotations[]), or, for the model-scope lists, relationships[] and signalDefinitions[].
+        API-native pagination returns one page per request with page.complete, page.returnedCount, and the exact page.cursor
+        needed to resume. A whole-query failure sets the query's success to
         false; once fan-out begins a failing entity is isolated on its own node without affecting sibling entities or queries.
         """,
     Destructive = false,
@@ -51,7 +58,7 @@ public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthMod
             return;
         }
 
-        if (!TryParseQueries(options.Queries, out _, out var error))
+        if (!HealthModelQueryParser.TryParse(options.Queries, out _, out var error))
         {
             validationResult.Errors.Add(error);
         }
@@ -61,7 +68,7 @@ public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthMod
     {
         try
         {
-            if (!TryParseQueries(options.Queries, out var queries, out var error))
+            if (!HealthModelQueryParser.TryParse(options.Queries, out var queries, out var error))
             {
                 throw new ArgumentException(error, nameof(options));
             }
@@ -97,35 +104,4 @@ public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthMod
         _ => base.GetStatusCode(ex),
     };
 
-    private static bool TryParseQueries(string json, out IReadOnlyList<HealthModelQuery> queries, out string error)
-    {
-        queries = [];
-        error = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            error = "--queries is required and must be a JSON array of health-model queries.";
-            return false;
-        }
-
-        HealthModelQuery[]? parsed;
-        try
-        {
-            parsed = JsonSerializer.Deserialize(json, MonitorJsonContext.Default.HealthModelQueryArray);
-        }
-        catch (JsonException ex)
-        {
-            error = $"--queries must be a valid JSON array of health-model queries. {ex.Message}";
-            return false;
-        }
-
-        if (parsed is null || parsed.Length == 0)
-        {
-            error = "--queries must contain at least one query.";
-            return false;
-        }
-
-        queries = parsed;
-        return true;
-    }
 }

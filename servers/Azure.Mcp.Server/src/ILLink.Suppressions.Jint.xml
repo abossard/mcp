@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Jint's CLR interop is reflection-based and carries RequiresUnreferencedCode, so ILLink reports it
+  against whichever project publishes trimmed regardless of whether the paths are reachable. The only
+  Jint consumer here is the health-model script sandbox, which never enters them:
+
+    Options.Apply                          only builds NamespaceReference when Interop.Enabled is true,
+                                           and HealthModelScriptRuntime leaves it at its default (false)
+    DefaultObjectConverter                 only reached for a JsonNode; the bridge passes JSON strings
+    DefaultTypeConverter.BuildDelegate     only reached when a CLR delegate is marshalled; every host
+                                           function is bound as a ClrFunction instead
+
+  Scoped to the Jint assembly so IL2026 stays armed for first-party code and every other package. A
+  C# [UnconditionalSuppressMessage] cannot express this: ILLink only honours a suppression declared in
+  the assembly that contains the warning origin, which is why this has to be link-attributes XML.
+-->
+<linker>
+  <assembly fullname="Jint">
+    <type fullname="Jint.Options">
+      <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute">
+        <argument>Trimming</argument>
+        <argument>IL2026</argument>
+      </attribute>
+    </type>
+    <type fullname="Jint.DefaultObjectConverter">
+      <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute">
+        <argument>Trimming</argument>
+        <argument>IL2026</argument>
+      </attribute>
+    </type>
+    <type fullname="Jint.Runtime.Interop.DefaultTypeConverter">
+      <attribute fullname="System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute">
+        <argument>Trimming</argument>
+        <argument>IL2026</argument>
+      </attribute>
+    </type>
+  </assembly>
+</linker>

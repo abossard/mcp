@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Turns Jint's CLR interop off as a link-time constant, so the code behind it is genuinely unreachable
+  rather than merely suppressed. ILC does not accept link-attributes, so a suppression cannot reach it;
+  substitutions are honoured by both ILLink and ILC.
+
+  InteropOptions.Enabled is stubbed to false, which is what HealthModelScriptRuntime already leaves it
+  at. Options.Apply's branch that builds a NamespaceReference, and registers the System, importNamespace
+  and clrHelper globals, becomes dead code and its RequiresUnreferencedCode warnings go away. The
+  sandbox's CLR-isolation tests assert the same behaviour from the outside.
+
+  Only feature-switch style constants work here: ILC's substitution parser rejects a stub of a method
+  returning a reference type, so DefaultObjectConverter.ConvertSystemTextJsonValue and
+  DefaultTypeConverter.BuildDelegate cannot be handled this way and still warn.
+-->
+<linker>
+  <assembly fullname="Jint">
+    <type fullname="Jint.Options/InteropOptions">
+      <method signature="System.Boolean get_Enabled()" body="stub" value="false" />
+    </type>
+  </assembly>
+</linker>

@@ -14,6 +14,8 @@ using Azure.Mcp.Tools.Monitor.Commands.WebTests;
 using Azure.Mcp.Tools.Monitor.Commands.Workspace;
 using Azure.Mcp.Tools.Monitor.Models.ActivityLog;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Changes;
+using Azure.Mcp.Tools.Monitor.Models.HealthModels.Queries;
 
 namespace Azure.Mcp.Tools.Monitor.Commands;
 
@@ -26,12 +28,30 @@ namespace Azure.Mcp.Tools.Monitor.Commands;
 [JsonSerializable(typeof(HealthModelDetail))]
 [JsonSerializable(typeof(HealthModelGetCommand.HealthModelGetCommandResult))]
 [JsonSerializable(typeof(HealthModelIdentity))]
-[JsonSerializable(typeof(HealthModelQuery))]
-[JsonSerializable(typeof(HealthModelQuery[]))]
-[JsonSerializable(typeof(HealthModelFieldGroup))]
-[JsonSerializable(typeof(HealthModelFieldGroup[]))]
+[JsonSerializable(typeof(EntityListQuery))]
+[JsonSerializable(typeof(EntityGetQuery))]
+[JsonSerializable(typeof(EntityHistoryQuery))]
+[JsonSerializable(typeof(SignalHistoryQuery))]
+[JsonSerializable(typeof(SignalRecommendationsQuery))]
+[JsonSerializable(typeof(DataAnnotationsQuery))]
+[JsonSerializable(typeof(RelationshipListQuery))]
+[JsonSerializable(typeof(SignalDefinitionListQuery))]
+[JsonSerializable(typeof(HealthModelSelector))]
+[JsonSerializable(typeof(CreateChange))]
+[JsonSerializable(typeof(PatchChange))]
+[JsonSerializable(typeof(RenameChange))]
+[JsonSerializable(typeof(DeleteChange))]
+[JsonSerializable(typeof(HealthModelChangeExpectation))]
+[JsonSerializable(typeof(HealthModelGraphEditResult))]
+[JsonSerializable(typeof(HealthModelChangeResult))]
+[JsonSerializable(typeof(HealthModelTargetResult))]
+[JsonSerializable(typeof(HealthModelPropertyChange))]
+[JsonSerializable(typeof(HealthModelScanCounts))]
+[JsonSerializable(typeof(JsonNode))]
+[JsonSerializable(typeof(HealthModelScriptResult))]
 [JsonSerializable(typeof(HealthModelQueryResult))]
 [JsonSerializable(typeof(HealthModelEntityResult))]
+[JsonSerializable(typeof(HealthModelCollectionItemResult))]
 [JsonSerializable(typeof(HealthModelEntityPage))]
 [JsonSerializable(typeof(HealthModelQueryPage))]
 [JsonSerializable(typeof(List<HealthModelQueryResult>))]

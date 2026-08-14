@@ -238,7 +238,7 @@ internal sealed class HealthModelEntityResultConverter : JsonConverter<HealthMod
         writer.WriteStartObject();
         writer.WriteBoolean("complete", page.Complete);
         writer.WriteNumber("returnedCount", page.ReturnedCount);
-        WriteString(writer, "nextMarker", page.NextMarker);
+        WriteString(writer, "cursor", page.Cursor);
         writer.WriteEndObject();
     }
 

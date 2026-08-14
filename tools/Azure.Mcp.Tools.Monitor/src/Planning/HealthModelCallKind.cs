@@ -25,4 +25,21 @@ internal enum HealthModelCallKind
 
     /// <summary>Entities_GetDataAnnotations for a single entity.</summary>
     GetDataAnnotations,
+
+    /// <summary>Relationships_ListByHealthModel (optionally with a point-in-time timestamp).</summary>
+    ListRelationships,
+
+    /// <summary>SignalDefinitions_ListByHealthModel (optionally with a point-in-time timestamp).</summary>
+    ListSignalDefinitions,
+}
+
+internal static class HealthModelCallKinds
+{
+    /// <summary>
+    /// The single definition of "reads a collection of the health model itself rather than of an entity".
+    /// The planner, <see cref="PlannedCall"/>, and the executor all read it, so adding a model-scope kind
+    /// cannot leave one of them behind.
+    /// </summary>
+    internal static bool IsModelScopeList(HealthModelCallKind kind) =>
+        kind is HealthModelCallKind.ListRelationships or HealthModelCallKind.ListSignalDefinitions;
 }
