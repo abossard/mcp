@@ -64,6 +64,13 @@ public interface IMonitorHealthModelService
         RetryPolicyOptions? retryPolicy = null,
         CancellationToken cancellationToken = default);
 
+    Task<HealthModelScriptResult> ExecuteHealthModelReadCode(
+        string subscription,
+        string code,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Executes a batch of typed health-model graph changes. The batch is planned against a fully enumerated
     /// snapshot of every targeted model and each input element yields exactly one result, correlated by its

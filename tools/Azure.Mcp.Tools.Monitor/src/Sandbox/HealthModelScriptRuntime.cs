@@ -71,6 +71,81 @@ internal static class HealthModelScriptRuntime
         }
     }
 
+    public static HealthModelScriptResult RunReadOnly(
+        string code,
+        IHealthModelReadCodeRunner readRunner,
+        CancellationToken cancellationToken)
+    {
+        var logs = new List<string>();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(Timeout);
+        var executionToken = timeout.Token;
+
+        var engine = new Engine(options =>
+        {
+            options.TimeoutInterval(Timeout);
+            options.MaxStatements(MaxStatements);
+            options.LimitRecursion(MaxRecursionDepth);
+            options.CancellationToken(executionToken);
+            options.Strict = true;
+        });
+
+        var bridge = new HealthModelReadBridge(readRunner, logs, executionToken);
+        bridge.Bind(engine);
+        engine.Execute(HealthModelReadPrelude.Source);
+        HealthModelScriptResult? result = null;
+
+        try
+        {
+            var completion = bridge.AwaitCompletion(engine, engine.Evaluate(HealthModelScriptNormalizer.Normalize(code)));
+            var serialized = Serialize(engine, completion);
+            var truncated = serialized is not null && HealthModelScriptOutput.TryTruncate(serialized, out var capped);
+
+            result = new HealthModelScriptResult
+            {
+                Result = truncated ? JsonValue.Create(Capped(serialized!)) : Parse(serialized),
+                Logs = logs,
+                Truncated = truncated,
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            result = new HealthModelScriptResult
+            {
+                Logs = logs,
+                Error = $"Script exceeded the {Timeout.TotalSeconds:F0}s execution limit.",
+            };
+        }
+        catch (ExecutionCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            result = new HealthModelScriptResult
+            {
+                Logs = logs,
+                Error = $"Script exceeded the {Timeout.TotalSeconds:F0}s execution limit.",
+            };
+        }
+        catch (ExecutionCanceledException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            result = new HealthModelScriptResult { Logs = logs, Error = Describe(ex) };
+        }
+        finally
+        {
+            timeout.Cancel();
+            bridge.DrainPending();
+            if (result is not null)
+            {
+                result.AzureCalls = bridge.AzureCalls;
+            }
+        }
+
+        return result!;
+    }
+
     private static string Capped(string serialized)
     {
         HealthModelScriptOutput.TryTruncate(serialized, out var capped);

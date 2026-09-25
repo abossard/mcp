@@ -3,6 +3,7 @@
 
 using Azure.Mcp.Core.Options;
 using Azure.Mcp.Tools.Monitor.Commands.HealthModels;
+using Azure.Mcp.Tools.Monitor.Sandbox;
 using Microsoft.Mcp.Core.Options;
 
 namespace Azure.Mcp.Tools.Monitor.Options.HealthModels;
@@ -10,7 +11,10 @@ namespace Azure.Mcp.Tools.Monitor.Options.HealthModels;
 public sealed class HealthModelQueryOptions : ISubscriptionOption
 {
     [Option(Description = HealthModelQuerySchema.Schema)]
-    public required string Queries { get; set; }
+    public string? Queries { get; set; }
+
+    [Option(Description = HealthModelReadDeclaration.Declaration)]
+    public string? Code { get; set; }
 
     [Option(Description = OptionDescriptions.Tenant)]
     public string? Tenant { get; set; }

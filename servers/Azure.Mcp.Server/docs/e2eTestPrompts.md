@@ -807,6 +807,8 @@ The `Interaction` column describes whether a prompt can invoke its tool immediat
 
 ## Azure Monitor
 
+Health Models walkthrough and API comparison: [practical guide](../../../docs/healthmodels.md).
+
 | Tool Name | Test Prompt | Interaction |
 |:----------|:------------|:------------|
 | monitor_activitylog_list | List the activity logs of the last month for <resource_name> | none |
@@ -819,6 +821,15 @@ The `Interaction` column describes whether a prompt can invoke its tool immediat
 | monitor_healthmodels_query | Get the signal history for all unhealthy entities in health model <health_model_name> | none |
 | monitor_healthmodels_query | Batch query health model <health_model_name>: list its entities and their health history | none |
 | monitor_healthmodels_query | Continue the next page of an entity history query in health model <health_model_name> | none |
+| monitor_healthmodels_query | Use healthmodels query code mode to run Promise.all over entities and relationships in health model <health_model_name> and return only counts | none |
+| monitor_healthmodels_query | In healthmodels query code mode, use Promise.allSettled to fetch two entity histories in health model <health_model_name> and return reason.operation, reason.status, reason.code, and reason.message for the failed call | none |
+| monitor_healthmodels_query | In healthmodels query code mode, list health models at subscription scope and continue one page with options.cursor | none |
+| monitor_healthmodels_query | In healthmodels query code mode, list health models in resource group <resource_group> and continue one page with options.cursor | none |
+| monitor_healthmodels_query | In healthmodels query code mode, list authentication settings for health model <health_model_name> in resource group <resource_group> | none |
+| monitor_healthmodels_query | In healthmodels query code mode, get authentication setting <authentication_setting_name> from health model <health_model_name> | none |
+| monitor_healthmodels_query | In healthmodels query code mode, list discovery rules for health model <health_model_name> and then get discovery rule <discovery_rule_name> | none |
+| monitor_healthmodels_query | In healthmodels query code mode, get relationship <relationship_name> and signal definition <signal_definition_name> from health model <health_model_name> | none |
+| monitor_healthmodels_query | In healthmodels query code mode, list Microsoft.CloudHealth provider operations and return only operation names | none |
 | monitor_healthmodels_query | Show the dependency graph of health model <health_model_name>: which entities roll up into which | none |
 | monitor_healthmodels_query | What signals are defined on health model <health_model_name> and what are their unhealthy thresholds? | none |
 | monitor_healthmodels_sdk | Write a script that counts the unhealthy entities in health model <health_model_name> | none |

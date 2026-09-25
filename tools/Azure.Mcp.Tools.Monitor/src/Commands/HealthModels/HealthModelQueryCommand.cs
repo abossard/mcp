@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Azure.Mcp.Core.Commands.Subscription;
 using Azure.Mcp.Core.Services.Azure.Subscription;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels;
@@ -19,24 +20,12 @@ namespace Azure.Mcp.Tools.Monitor.Commands.HealthModels;
     Name = "query",
     Title = "Query Azure Monitor Health Models",
     Description = """
-        Run a batch of typed, read-only Azure Monitor Health Model queries (Microsoft.CloudHealth/healthmodels) in a single
-        call and get one result per query, returned in input order and correlated by a system-assigned zero-based queryIndex.
-        Supported query kinds are entity list (optionally point-in-time), entity get, entity health history, signal history,
-        signal recommendations, data annotations, relationship list (the model's parent/child dependency edges) and signal
-        definition list (the model's signal definitions, with their evaluation thresholds). Relationships and signal
-        definitions make a dependency rollup explainable and let a caller read real entity and definition names instead of
-        guessing them. Each kind is its own closed shape carrying exactly the inputs it accepts, so an input that belongs to
-        another kind is rejected by name rather than ignored; the queries option's description is the JSON Schema for the batch.
-        Per-entity kinds target either one named entity or, using a health filter (e.g. only unhealthy entities), every
-        matching entity resolved from a single shared entity list. The queries are planned into
-        the fewest Azure Resource Manager calls (grouped by model, deduplicated). Payloads are compact by default and callers
-        can opt into per-kind selections or full SDK fidelity. Each result carries a uniform list of
-        per-entity nodes (for example
-        entity.properties.healthState, history.history[], signalHistory.history[], recommendations.recommendedSignals[],
-        annotations.annotations[]), or, for the model-scope lists, relationships[] and signalDefinitions[].
-        API-native pagination returns one page per request with page.complete, page.returnedCount, and the exact page.cursor
-        needed to resume. A whole-query failure sets the query's success to
-        false; once fan-out begins a failing entity is isolated on its own node without affecting sibling entities or queries.
+        Query Azure Monitor Health Models in one of two read-only modes.
+        Use --queries for typed batch queries (schema-driven JSON, one result per queryIndex).
+        Use --code for JavaScript read-code mode in a read-only sandbox with Promise-based Health Models APIs.
+        The read-code mode exposes only read operations, supports Promise.all overlap with a four-request gate,
+        and enforces sandbox limits (30s timeout, max depth 64, max 5,000,000 statements, max result size 24,000 chars).
+        Both modes preserve command cancellation and return structured per-call failures.
         """,
     Destructive = false,
     Idempotent = true,
@@ -45,7 +34,7 @@ namespace Azure.Mcp.Tools.Monitor.Commands.HealthModels;
     Secret = false,
     LocalRequired = false)]
 public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthModelService, ISubscriptionResolver subscriptionResolver)
-    : SubscriptionCommand<HealthModelQueryOptions, List<HealthModelQueryResult>>(subscriptionResolver)
+    : SubscriptionCommand<HealthModelQueryOptions, JsonNode>(subscriptionResolver)
 {
     private readonly IMonitorHealthModelService _healthModelService = healthModelService;
 
@@ -58,7 +47,16 @@ public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthMod
             return;
         }
 
-        if (!HealthModelQueryParser.TryParse(options.Queries, out _, out var error))
+        var hasQueries = options.Queries is not null;
+        var hasCode = options.Code is not null;
+
+        if (hasQueries == hasCode || string.IsNullOrWhiteSpace(options.Queries ?? options.Code))
+        {
+            validationResult.Errors.Add("Provide exactly one of code or queries.");
+            return;
+        }
+
+        if (hasQueries && !HealthModelQueryParser.TryParse(options.Queries!, out _, out var error))
         {
             validationResult.Errors.Add(error);
         }
@@ -68,7 +66,23 @@ public sealed class HealthModelQueryCommand(IMonitorHealthModelService healthMod
     {
         try
         {
-            if (!HealthModelQueryParser.TryParse(options.Queries, out var queries, out var error))
+            if (!string.IsNullOrWhiteSpace(options.Code))
+            {
+                var scriptResult = await _healthModelService.ExecuteHealthModelReadCode(
+                    options.Subscription!,
+                    options.Code,
+                    options.Tenant,
+                    options.RetryPolicy,
+                    cancellationToken);
+
+                context.Response.Results = ResponseResult.Create(
+                    scriptResult,
+                    MonitorJsonContext.Default.HealthModelScriptResult);
+
+                return context.Response;
+            }
+
+            if (!HealthModelQueryParser.TryParse(options.Queries!, out var queries, out var error))
             {
                 throw new ArgumentException(error, nameof(options));
             }

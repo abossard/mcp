@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.ClientModel.Primitives;
 using System.Text.Json.Nodes;
 using Azure.Mcp.Tools.Monitor.Models.HealthModels.Changes;
@@ -19,11 +20,20 @@ namespace Azure.Mcp.Tools.Monitor.Services;
 /// CloudHealth SDK requests a <see cref="PlannedCall"/> maps to, and returns exactly one SDK page per call.
 /// It also serves the write side (<see cref="IHealthModelWriteRunner"/>), reusing that same model cache.
 /// </summary>
-internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription, ArmClient armClient)
-    : IHealthModelCallRunner, IHealthModelWriteRunner, IHealthModelSdkRunner
+internal sealed class ArmHealthModelCallRunner(
+    SubscriptionResource subscription,
+    ArmClient armClient,
+    string armEndpoint,
+    Func<CancellationToken, Task<JsonNode>>? listOperationsAsync = null)
+    : IHealthModelCallRunner, IHealthModelWriteRunner, IHealthModelSdkRunner, IHealthModelReadCodeRunner
 {
     private readonly string _subscriptionId = subscription.Id.SubscriptionId!;
-    private readonly Dictionary<PlanScope, HealthModelResource> _modelCache = [];
+    private readonly Func<CancellationToken, Task<JsonNode>>? _listOperationsAsync = listOperationsAsync;
+    private readonly ConcurrentDictionary<PlanScope, Lazy<Task<HealthModelResource>>> _modelCache = [];
+    private readonly string _armEndpoint = armEndpoint.TrimEnd('/');
+
+    public string SubscriptionId => _subscriptionId;
+    public string ArmEndpoint => _armEndpoint;
 
     public async Task<HealthModelEntityListPage> ListEntitiesAsync(
         PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, CancellationToken cancellationToken)
@@ -33,6 +43,7 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
             model.GetHealthModelEntities().GetAllAsync(timestamp, cancellationToken),
             continuationToken,
             cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
         return new HealthModelEntityListPage(
             page.Items.Select(entity => entity.Data).ToList(),
             page.ContinuationToken);
@@ -46,6 +57,7 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
             model.GetHealthModelRelationships().GetAllAsync(timestamp, cancellationToken),
             continuationToken,
             cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
         return new HealthModelListPage<HealthModelRelationshipData>(
             page.Items.Select(relationship => relationship.Data).ToList(),
             page.ContinuationToken);
@@ -59,6 +71,7 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
             model.GetHealthModelSignalDefinitions().GetAllAsync(timestamp, cancellationToken),
             continuationToken,
             cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
         return new HealthModelListPage<HealthModelSignalDefinitionData>(
             page.Items.Select(definition => definition.Data).ToList(),
             page.ContinuationToken);
@@ -178,6 +191,7 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
                 .Value.GetHealthModels().GetAllAsync(cancellationToken: cancellationToken);
 
         var page = await HealthModelPaginator.ReadPageAsync(pageable, continuationToken, cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
         return new HealthModelListPage<HealthModelData>(
             page.Items.Select(model => model.Data).ToList(),
             page.ContinuationToken);
@@ -189,6 +203,87 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
         var model = await ResolveModelAsync(new PlanScope(resourceGroup, healthModelName), cancellationToken);
         return model.Data;
     }
+
+    public async Task<HealthModelData> GetHealthModelReadAsync(
+        string resourceGroup, string healthModelName, CancellationToken cancellationToken)
+    {
+        var id = HealthModelResource.CreateResourceIdentifier(_subscriptionId, resourceGroup, healthModelName);
+        var model = await armClient.GetHealthModelResource(id).GetAsync(cancellationToken);
+        return model.Value.Data;
+    }
+
+    public async Task<HealthModelRelationshipData> GetRelationshipAsync(
+        PlanScope scope, string relationshipName, CancellationToken cancellationToken)
+    {
+        var relationship = await armClient.GetHealthModelRelationshipResource(
+            HealthModelRelationshipResource.CreateResourceIdentifier(
+                _subscriptionId, scope.ResourceGroup, scope.HealthModel, relationshipName))
+            .GetAsync(cancellationToken);
+        return relationship.Value.Data;
+    }
+
+    public async Task<HealthModelSignalDefinitionData> GetSignalDefinitionAsync(
+        PlanScope scope, string signalDefinitionName, CancellationToken cancellationToken)
+    {
+        var definition = await armClient.GetHealthModelSignalDefinitionResource(
+            HealthModelSignalDefinitionResource.CreateResourceIdentifier(
+                _subscriptionId, scope.ResourceGroup, scope.HealthModel, signalDefinitionName))
+            .GetAsync(cancellationToken);
+        return definition.Value.Data;
+    }
+
+    public async Task<HealthModelAuthenticationSettingData> GetAuthenticationSettingAsync(
+        PlanScope scope, string authenticationSettingName, CancellationToken cancellationToken)
+    {
+        var setting = await armClient.GetHealthModelAuthenticationSettingResource(
+            HealthModelAuthenticationSettingResource.CreateResourceIdentifier(
+                _subscriptionId, scope.ResourceGroup, scope.HealthModel, authenticationSettingName))
+            .GetAsync(cancellationToken);
+        return setting.Value.Data;
+    }
+
+    public async Task<HealthModelListPage<HealthModelAuthenticationSettingData>> ListAuthenticationSettingsAsync(
+        PlanScope scope, string? continuationToken, CancellationToken cancellationToken)
+    {
+        var model = await ResolveModelAsync(scope, cancellationToken);
+        var page = await HealthModelPaginator.ReadPageAsync(
+            model.GetHealthModelAuthenticationSettings().GetAllAsync(cancellationToken),
+            continuationToken,
+            cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
+        return new HealthModelListPage<HealthModelAuthenticationSettingData>(
+            page.Items.Select(setting => setting.Data).ToList(),
+            page.ContinuationToken);
+    }
+
+    public async Task<HealthModelDiscoveryRuleData> GetDiscoveryRuleAsync(
+        PlanScope scope, string discoveryRuleName, CancellationToken cancellationToken)
+    {
+        var rule = await armClient.GetHealthModelDiscoveryRuleResource(
+            HealthModelDiscoveryRuleResource.CreateResourceIdentifier(
+                _subscriptionId, scope.ResourceGroup, scope.HealthModel, discoveryRuleName))
+            .GetAsync(cancellationToken);
+        return rule.Value.Data;
+    }
+
+    public async Task<HealthModelListPage<HealthModelDiscoveryRuleData>> ListDiscoveryRulesAsync(
+        PlanScope scope, DateTimeOffset? timestamp, string? continuationToken, CancellationToken cancellationToken)
+    {
+        var model = await ResolveModelAsync(scope, cancellationToken);
+        var page = await HealthModelPaginator.ReadPageAsync(
+            model.GetHealthModelDiscoveryRules().GetAllAsync(timestamp, cancellationToken),
+            continuationToken,
+            cancellationToken);
+        HealthModelPaginator.EnsureMarkerAdvanced(continuationToken, page.ContinuationToken);
+        return new HealthModelListPage<HealthModelDiscoveryRuleData>(
+            page.Items.Select(rule => rule.Data).ToList(),
+            page.ContinuationToken);
+    }
+
+    public Task<JsonNode> ListOperationsAsync(CancellationToken cancellationToken) =>
+        _listOperationsAsync is not null
+            ? _listOperationsAsync(cancellationToken)
+            : throw new InvalidOperationException("Operations reader is not configured.");
 
     public async Task<JsonNode> AddDataAnnotationAsync(
         PlanScope scope, string entityName, JsonObject body, CancellationToken cancellationToken)
@@ -235,14 +330,30 @@ internal sealed class ArmHealthModelCallRunner(SubscriptionResource subscription
 
     private async Task<HealthModelResource> ResolveModelAsync(PlanScope scope, CancellationToken cancellationToken)
     {
-        if (_modelCache.TryGetValue(scope, out var cached))
+        while (true)
         {
-            return cached;
-        }
+            var resolution = _modelCache.GetOrAdd(
+                scope,
+                currentScope => new Lazy<Task<HealthModelResource>>(
+                    () => ResolveModelCoreAsync(currentScope, cancellationToken),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
 
+            try
+            {
+                return await resolution.Value.ConfigureAwait(false);
+            }
+            catch
+            {
+                _modelCache.TryRemove(new KeyValuePair<PlanScope, Lazy<Task<HealthModelResource>>>(scope, resolution));
+                throw;
+            }
+        }
+    }
+
+    private async Task<HealthModelResource> ResolveModelCoreAsync(PlanScope scope, CancellationToken cancellationToken)
+    {
         var resourceGroup = await subscription.GetResourceGroupAsync(scope.ResourceGroup, cancellationToken);
         var model = await resourceGroup.Value.GetHealthModels().GetAsync(scope.HealthModel, cancellationToken);
-        _modelCache[scope] = model.Value;
         return model.Value;
     }
 

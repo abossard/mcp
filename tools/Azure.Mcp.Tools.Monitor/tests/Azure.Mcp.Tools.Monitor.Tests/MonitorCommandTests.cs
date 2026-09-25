@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Azure.ResourceManager.CloudHealth.Models;
 using Microsoft.Mcp.Tests;
 using Microsoft.Mcp.Tests.Client;
@@ -49,6 +50,11 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
             {
                 Regex = @"ResourceHealth-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
                 Value = "ResourceHealth-Sanitized"
+            }),
+            new(new GeneralRegexSanitizerBody
+            {
+                Regex = Regex.Escape(Settings.ResourceGroupName),
+                Value = "Sanitized"
             })
         ];
 
@@ -965,6 +971,115 @@ public sealed class MonitorCommandTests(ITestOutputHelper output, TestProxyFixtu
             "WorstOf",
             rootNode.AssertProperty("entity").AssertProperty("properties").AssertProperty("signalGroups")
                 .AssertProperty("dependencies").AssertProperty("aggregationType").GetString());
+    }
+
+    [Fact]
+    public async Task Should_Query_HealthModel_ReadCode_ConfigurationAndReadActions()
+    {
+        var model = _healthModelTopologyName!;
+        var code = $$"""
+            const rg = '{{Settings.ResourceGroupName}}', model = '{{model}}';
+            const [entities, relationships, definitions, authentication, discovery] = await Promise.all([
+              client.entities.listByHealthModel(rg, model),
+              client.relationships.listByHealthModel(rg, model),
+              client.signalDefinitions.listByHealthModel(rg, model),
+              client.authenticationSettings.listByHealthModel(rg, model),
+              client.discoveryRules.listByHealthModel(rg, model)
+            ]);
+            const rootName = entities.value.find(entity => entity.name === model).name;
+            const definitionName = definitions.value.find(definition => definition.name === 'storage-availability').name;
+            const [root, edge, definition, identity, history, annotations, missing] = await Promise.all([
+              client.entities.get(rg, model, rootName),
+              client.relationships.get(rg, model, relationships.value[0].name),
+              client.signalDefinitions.get(rg, model, definitionName),
+              client.authenticationSettings.get(rg, model, authentication.value[0].name),
+              client.entities.getHistory(rg, model, rootName, { top: 1 }),
+              client.entities.getDataAnnotations(rg, model, rootName, { top: 1 }),
+              client.discoveryRules.get(rg, model, 'missing-read-code-rule').then(
+                () => ({ status: 200 }),
+                error => ({ operation: error.operation, status: error.status, code: error.code })
+              )
+            ]);
+            return {
+              counts: [entities.value.length, relationships.value.length, definitions.value.length, authentication.value.length],
+              root: { name: root.name, aggregation: root.properties.signalGroups.dependencies.aggregationType },
+              edge: { parent: edge.properties.parentEntityName, child: edge.properties.childEntityName },
+              definition: { name: definition.name, threshold: definition.properties.evaluationRules.unhealthyRule.threshold },
+              identity: identity.name,
+              historyEntity: history.entityName,
+              annotationsEntity: annotations.entityName,
+              missing
+            };
+            """;
+
+        var envelope = await CallToolAsync(
+            "monitor_healthmodels_query",
+            new()
+            {
+                { "subscription", Settings.SubscriptionId },
+                { "tenant", Settings.TenantId },
+                { "code", code }
+            },
+            resultProcessor: root => root);
+
+        var script = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
+        Assert.False(script.TryGetProperty("error", out _), script.ToString());
+        Assert.Equal(11, script.AssertProperty("azureCalls").GetInt32());
+        var result = script.AssertProperty("result");
+        Assert.Equal(new[] { 3, 2, 1, 1 }, result.AssertProperty("counts").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(model, result.AssertProperty("root").AssertProperty("name").GetString());
+        Assert.Equal("WorstOf", result.AssertProperty("root").AssertProperty("aggregation").GetString());
+        Assert.Equal(model, result.AssertProperty("edge").AssertProperty("parent").GetString());
+        Assert.Contains(result.AssertProperty("edge").AssertProperty("child").GetString(),
+            new[] { $"{model}-leaf-frontend", $"{model}-leaf-backend" });
+        Assert.Equal("storage-availability", result.AssertProperty("definition").AssertProperty("name").GetString());
+        Assert.Equal(95, result.AssertProperty("definition").AssertProperty("threshold").GetDouble());
+        Assert.Equal("default", result.AssertProperty("identity").GetString());
+        Assert.Equal(model, result.AssertProperty("historyEntity").GetString());
+        Assert.Equal(model, result.AssertProperty("annotationsEntity").GetString());
+        Assert.Equal(404, result.AssertProperty("missing").AssertProperty("status").GetInt32());
+        Assert.Equal("discoveryRules.get", result.AssertProperty("missing").AssertProperty("operation").GetString());
+        Assert.False(string.IsNullOrEmpty(result.AssertProperty("missing").AssertProperty("code").GetString()));
+    }
+
+    [Fact]
+    public async Task Should_Query_HealthModel_ReadCode_ContinuesHistoryFromReturnedMarker()
+    {
+        var model = _healthModelChildName!;
+        var code = $$"""
+            const rg = '{{Settings.ResourceGroupName}}', model = '{{model}}';
+            const first = await client.entities.getHistory(rg, model, model, { top: 1 });
+            if (!first.nextMarker) throw new Error('The seeded fixture must have a second history page.');
+            const second = await client.entities.getHistory(rg, model, model, { top: 1, nextMarker: first.nextMarker });
+            return {
+              entity: first.entityName,
+              resumedEntity: second.entityName,
+              counts: [first.history.length, second.history.length],
+              states: [first.history[0].newState, second.history[0].newState],
+              times: [first.history[0].occurredAt, second.history[0].occurredAt]
+            };
+            """;
+
+        var envelope = await CallToolAsync(
+            "monitor_healthmodels_query",
+            new()
+            {
+                { "subscription", Settings.SubscriptionId },
+                { "tenant", Settings.TenantId },
+                { "code", code }
+            },
+            resultProcessor: root => root);
+
+        var script = AssertCommandResponseEnvelope(envelope, "duration", "message", "results", "status");
+        Assert.False(script.TryGetProperty("error", out _), script.ToString());
+        Assert.Equal(2, script.AssertProperty("azureCalls").GetInt32());
+        var result = script.AssertProperty("result");
+        Assert.Equal(model, result.AssertProperty("entity").GetString());
+        Assert.Equal(model, result.AssertProperty("resumedEntity").GetString());
+        Assert.Equal(new[] { 1, 1 }, result.AssertProperty("counts").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(new[] { "Unhealthy", "Degraded" }, result.AssertProperty("states").EnumerateArray().Select(value => value.GetString()));
+        var times = result.AssertProperty("times").EnumerateArray().Select(value => value.GetDateTimeOffset()).ToArray();
+        Assert.True(times[0] > times[1]);
     }
 
     #endregion
